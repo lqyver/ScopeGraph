@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "companies": {
+    "示例科技": [
+      {
+        "domain": "example.com",
+        "source": "recorded-public-search",
+        "source_url": "https://search.example.invalid/result/1",
+        "signals": ["OFFICIAL_DIRECT_LINK", "BRAND_NAME_MATCH", "MULTI_SOURCE"]
+      }
+    ],
+    "scopegraph labs": [
+      {
+        "domain": "scopegraph.example",
+        "source": "recorded-public-search",
+        "source_url": "https://search.example.invalid/result/2",
+        "signals": ["OFFICIAL_DIRECT_LINK", "BRAND_NAME_MATCH", "MULTI_SOURCE"]
+      }
+    ]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "assets": [
+    "WWW.Example.COM.",
+    {"type": "domain", "value": "payment.example.com"},
+    {"type": "url", "value": "https://portal.example.com:443/a/../login#section"},
+    {"type": "ip", "value": "192.0.2.1"},
+    {"type": "domain", "value": "bad domain"}
+  ]
+}

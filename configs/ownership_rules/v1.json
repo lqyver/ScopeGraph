@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "weights": {
+    "CONFIRMED_ROOT": 50,
+    "ICP_SUBJECT_EXACT": 40,
+    "COPYRIGHT_SUBJECT_EXACT": 25,
+    "PRIVACY_OPERATOR_EXACT": 25,
+    "OFFICIAL_DIRECT_LINK": 20,
+    "TLS_SAN_RELATED": 15,
+    "BRAND_NAME_MATCH": 10,
+    "MULTI_SOURCE": 5,
+    "SAME_IP_ONLY": 2,
+    "THIRD_PARTY_CNAME": -30,
+    "ICP_SUBJECT_CONFLICT": -40,
+    "PAGE_SUBJECT_OTHER": -50,
+    "CDN_SHARED": -20,
+    "SEARCH_KEYWORD_ONLY": -10
+  },
+  "thresholds": {
+    "confirmed": 90,
+    "high_confidence": 70,
+    "pending_review": 40,
+    "weak_relation": 1
+  }
+}

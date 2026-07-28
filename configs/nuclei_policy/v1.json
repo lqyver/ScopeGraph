@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "allowed_tags": ["tech", "exposure", "misconfig", "ssl"],
+  "blocked_tags": ["dos", "fuzz", "file-upload", "default-login", "intrusive", "rce"],
+  "allowed_severities": ["info", "low", "medium", "high", "critical"],
+  "policy": "allowlist",
+  "automatic_update": false
+}

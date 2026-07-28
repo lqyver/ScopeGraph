@@ -1,0 +1,2 @@
+{"url":"https://api.example.com","host":"api.example.com","port":"443","status_code":200,"title":"Example API","tech":["nginx"],"webserver":"nginx"}
+{"url":"https://www.example.com/","host":"www.example.com","port":"443","status_code":200,"title":"Example","tech":["Next.js"]}

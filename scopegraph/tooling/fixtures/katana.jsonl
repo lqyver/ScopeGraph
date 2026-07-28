@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-16T08:00:00Z","source":"https://www.example.com/","request":{"method":"GET","endpoint":"https://www.example.com/"},"response":{"status_code":200},"tag":"html"}
+{"timestamp":"2026-07-16T08:00:01Z","source":"https://www.example.com/","request":{"method":"GET","endpoint":"https://www.example.com/assets/app.js"},"response":{"status_code":200},"tag":"script","attribute":"src"}
+{"timestamp":"2026-07-16T08:00:02Z","source":"https://www.example.com/assets/app.js","request":{"method":"GET","endpoint":"https://www.example.com/api/v1/profile"},"response":{"status_code":200},"tag":"fetch"}
+{"timestamp":"2026-07-16T08:00:03Z","source":"https://www.example.com/","request":{"method":"GET","endpoint":"https://vendor.example.net/help"},"tag":"a","attribute":"href"}
+{"timestamp":"2026-07-16T08:00:04Z","source":"https://www.example.com/","request":{"method":"POST","endpoint":"https://www.example.com/api/v1/payment"},"tag":"form","attribute":"action"}

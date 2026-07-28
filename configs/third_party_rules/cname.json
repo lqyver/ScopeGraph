@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "rules": [
+    {"provider": "Akamai", "category": "CDN", "suffixes": ["akamai.net", "akamaiedge.net", "edgekey.net", "edgesuite.net"]},
+    {"provider": "Amazon CloudFront", "category": "CDN", "suffixes": ["cloudfront.net"]},
+    {"provider": "Cloudflare", "category": "CDN", "suffixes": ["cloudflare.net"]},
+    {"provider": "Fastly", "category": "CDN", "suffixes": ["fastly.net", "fastlylb.net"]},
+    {"provider": "Azure Front Door/CDN", "category": "CDN", "suffixes": ["azureedge.net", "azurefd.net", "trafficmanager.net"]},
+    {"provider": "Vercel", "category": "CDN", "suffixes": ["vercel-dns.com", "vercel.app"]},
+    {"provider": "GitHub Pages", "category": "SAAS", "suffixes": ["github.io"]},
+    {"provider": "Heroku", "category": "SAAS", "suffixes": ["herokudns.com", "herokuapp.com"]},
+    {"provider": "Microsoft Azure App Service", "category": "SAAS", "suffixes": ["azurewebsites.net"]},
+    {"provider": "Salesforce", "category": "SAAS", "suffixes": ["force.com", "salesforce.com"]},
+    {"provider": "Shopify", "category": "SAAS", "suffixes": ["myshopify.com"]},
+    {"provider": "Statuspage", "category": "SAAS", "suffixes": ["statuspage.io"]},
+    {"provider": "Zendesk", "category": "SAAS", "suffixes": ["zendesk.com"]}
+  ]
+}

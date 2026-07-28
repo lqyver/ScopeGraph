@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible, non-sensitive problem in ScopeGraph.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, real target details, raw scan outputs, or security vulnerabilities. Review SECURITY.md for private reporting.
+  - type: input
+    id: version
+    attributes:
+      label: ScopeGraph version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose
+        - Local Python and Node.js
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Safe reproduction steps
+      description: Use fixture data or a local lab only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true

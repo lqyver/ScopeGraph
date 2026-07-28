@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#08111f"/>
+  <rect x="64" y="64" width="1152" height="592" rx="24" fill="#101f35" stroke="#4cd4b0" stroke-width="2"/>
+  <text x="112" y="160" fill="#4cd4b0" font-family="Arial,sans-serif" font-size="28">SCOPEGRAPH FIXTURE CAPTURE</text>
+  <text x="112" y="260" fill="#f4f8ff" font-family="Arial,sans-serif" font-size="56">Example Corporation</text>
+  <text x="112" y="326" fill="#94a8c5" font-family="Arial,sans-serif" font-size="26">https://www.example.com/</text>
+  <rect x="112" y="406" width="300" height="92" rx="16" fill="#19364d"/>
+  <text x="144" y="462" fill="#ffffff" font-family="Arial,sans-serif" font-size="24">HTTP 200 · TLS</text>
+</svg>

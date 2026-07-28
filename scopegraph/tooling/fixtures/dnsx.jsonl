@@ -1,0 +1,2 @@
+{"host":"api.example.com","a":["93.184.216.34"],"aaaa":[],"cname":[]}
+{"host":"www.example.com","a":["93.184.216.35"],"cname":["d111.cloudfront.net"]}

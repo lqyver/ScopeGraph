@@ -1,0 +1,2 @@
+{"host":"api.example.com","input":"example.com","source":["fixture-crtsh"]}
+{"host":"www.example.com","input":"example.com","source":["fixture-passive"]}

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scopegraph"
+version = "1.0.0"
+description = "Local-first, authorization-gated public attack-surface discovery platform"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "alembic>=1.16,<2",
+  "asyncpg>=0.30,<1",
+  "dramatiq[redis]>=1.18,<2",
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "idna>=3.10,<4",
+  "mcp>=1.27,<2",
+  "pydantic-settings>=2.10,<3",
+  "python-multipart>=0.0.20,<1",
+  "sqlalchemy[asyncio]>=2.0.41,<3",
+  "structlog>=25.4,<26",
+  "tldextract>=5.3,<6",
+  "typer>=0.16,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+scopegraph = "apps.cli.main:app"
+scopegraph-mcp = "apps.mcp_server.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["apps*", "scopegraph*"]
+
+[tool.pytest.ini_options]
+# Keep test artifacts in an ignored root-level directory. This works in a
+# clean clone, unlike an artifacts child whose parent may be intentionally
+# absent from a public release snapshot.
+addopts = "-q --strict-markers --disable-warnings --basetemp=.pytest-tmp"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["scopegraph", "apps"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["dramatiq.*"]
+ignore_missing_imports = true

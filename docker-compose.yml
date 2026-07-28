@@ -1,0 +1,193 @@
+name: scopegraph
+
+x-python-service: &python-service
+  # API, worker, MCP, migration, and data-init execute the same pinned image.
+  # Sharing one tag avoids Compose creating duplicate tool images.
+  image: ${SCOPEGRAPH_API_IMAGE:-scopegraph-api}
+  # This tag is built locally by the api service. Do not emit a misleading
+  # registry pull failure for the sibling services that reuse that local image.
+  pull_policy: never
+  env_file:
+    - path: .env
+      required: false
+  environment: &python-environment
+    SCOPEGRAPH_DATABASE_URL: postgresql+asyncpg://scopegraph:scopegraph@db:5432/scopegraph
+    SCOPEGRAPH_REDIS_URL: redis://redis:6379/0
+    SCOPEGRAPH_DATA_ROOT: /data
+  volumes:
+    - scopegraph_data:/data
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scopegraph}
+      POSTGRES_USER: ${POSTGRES_USER:-scopegraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scopegraph}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  data-init:
+    <<: *python-service
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /data"]
+    restart: "no"
+
+  migrate:
+    <<: *python-service
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+      # Do not inject a desktop-wide transparent proxy into image build steps.
+      # ScopeGraph itself has explicit, auditable proxy handling and the proxy can
+      # otherwise make package installation fail under parallel Docker builds.
+      args:
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        http_proxy: ""
+        https_proxy: ""
+        no_proxy: ""
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import json,os,urllib.request; k=os.getenv('SCOPEGRAPH_API_KEY'); h={'x-scopegraph-api-key':k} if k else {}; r=urllib.request.Request('http://127.0.0.1:8000/health',headers=h); d=json.load(urllib.request.urlopen(r)); raise SystemExit(0 if d['status']=='healthy' else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  worker:
+    <<: *python-service
+    command: ["dramatiq", "apps.worker.tasks", "--processes", "1", "--threads", "4"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from redis import Redis; from scopegraph.infrastructure.config import get_settings; Redis.from_url(get_settings().redis_url).ping()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  mcp:
+    <<: *python-service
+    command:
+      [
+        "scopegraph-mcp",
+        "--transport",
+        "streamable-http",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+      ]
+    environment:
+      <<: *python-environment
+      SCOPEGRAPH_API_URL: http://api:8000
+      SCOPEGRAPH_API_KEY: ${SCOPEGRAPH_API_KEY:-}
+      SCOPEGRAPH_MCP_ALLOW_SCAN_START: ${SCOPEGRAPH_MCP_ALLOW_SCAN_START:-false}
+    ports:
+      - "127.0.0.1:8001:8001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import socket; s=socket.create_connection(('127.0.0.1',8001),2); s.close()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_TELEMETRY_DISABLED: "1"
+        HTTP_PROXY: ""
+        HTTPS_PROXY: ""
+        NO_PROXY: ""
+        http_proxy: ""
+        https_proxy: ""
+        no_proxy: ""
+    environment:
+      API_INTERNAL_URL: http://api:8000
+      SCOPEGRAPH_API_KEY: ${SCOPEGRAPH_API_KEY:-}
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "127.0.0.1:8080:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  scopegraph_data:

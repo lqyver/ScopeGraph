@@ -1,0 +1,1 @@
+{"template-id":"http-missing-security-headers","info":{"name":"HTTP Missing Security Headers","severity":"low","tags":["misconfig"]},"type":"http","host":"https://www.example.com","matched-at":"https://www.example.com/","matcher-name":"content-security-policy","timestamp":"2026-07-16T10:00:00Z","ip":"93.184.216.34"}
