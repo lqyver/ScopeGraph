@@ -350,7 +350,11 @@ class SafeProcessRunner:
                 # CREATE_NEW_PROCESS_GROUP makes CTRL_BREAK_EVENT a group-wide
                 # signal, so descendants that inherited the group cannot outlive
                 # a cancelled wrapper process.
-                process.send_signal(signal.CTRL_BREAK_EVENT)
+                ctrl_break_event = getattr(signal, 'CTRL_BREAK_EVENT', None)
+                if ctrl_break_event is not None:
+                    process.send_signal(ctrl_break_event)
+                else:
+                    process.terminate()
                 await asyncio.wait_for(process.wait(), timeout=1)
                 return
             except (ProcessLookupError, TimeoutError):
