@@ -14,14 +14,14 @@ visual pass and maintainer review remain before a final tag. Publishing prebuilt
 | Local source checks | Passed | 147 Python tests, including warnings-as-errors, and 20 Web tests, Ruff, mypy, ESLint, TypeScript, and the Next.js production build passed on 2026-09-01. Coverage is 62.52%, with a CI floor of 60%. |
 | Compose parsing | Passed | Default Community Compose parsing and the offline launcher check passed on 2026-09-01; regression tests cover check-only startup, container-local CLI addressing, host-port overrides, configurable Debian mirrors, dependency constraints, and edition-specific MCP client naming. |
 | Public boundary/history audit | Passed | The candidate tree and available public history contain no internal marker or prohibited artifact path; three credential-shaped strings are intentional rejection fixtures. |
-| Clean public commit | Passed | Commit `a0ba58c` is clean; the strict public boundary validator passed on 2026-09-01. |
+| Clean public commit | Passed | The latest release-candidate commit is clean; the strict public boundary validator passed on 2026-09-01. |
 | Fresh Docker image rebuild | Passed locally | `Start-ScopeGraph.cmd --no-open` rebuilt the current Community API and Web images on 2026-09-01. Database, Redis, API, Worker, MCP, and Web were healthy; migration and data-init exited 0. The launcher reached `http://127.0.0.1:18080/projects`. |
 | Fixture workflow E2E | Passed locally | Phase 2 through Phase 7, asynchronous enterprise discovery, and Worker stop/queue/start recovery passed against the final local image on 2026-09-01. All runs used loopback-only fixture execution; no real target was scanned. |
 | Browser and responsive UI smoke | Pending current-tree rerun | A prior browser smoke passed on 2026-08-09. The current code has route/build checks, but the automated browser helper was unavailable in this environment on 2026-09-01; repeat the desktop and 390px visual pass before calling the candidate final. |
 | MCP runtime smoke | Passed locally | The official SDK client discovered 16 tools, loaded the connection-first guide, read status/projects, and verified that scan writes are blocked by default on 2026-09-01. |
 | GitHub-hosted CI | Passed | Run 33479291195 completed successfully on 2026-09-01: Python, Web, and Compose jobs all passed on the candidate commit. |
 | Prebuilt-image third-party notices | Pending for image publication | Exact bundled tool versions are inventoried, but mutable base/package tags and final license/NOTICE review still block publication of a prebuilt container image. This does not add binaries to a source-only `git archive`. |
-| Release archive inspection | Passed | A `git archive` from commit `a0ba58c` extracted successfully; 284 files matched the Git tree and the post-extraction boundary scan passed on 2026-09-01. |
+| Release archive inspection | Passed | A `git archive` from the latest clean candidate commit extracted successfully; 284 files matched the Git tree and the post-extraction boundary scan passed on 2026-09-01. |
 
 ## Offline boundary command
 
