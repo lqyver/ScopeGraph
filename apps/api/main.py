@@ -27,6 +27,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     structlog.get_logger().info(
         "application_started",
         application=settings.app_name,
+        edition=settings.edition,
         environment=settings.environment,
     )
     yield
@@ -46,9 +47,12 @@ def create_app() -> FastAPI:
     )
     application.add_middleware(RequestContextMiddleware)
     if settings.public_bind:
-        if settings.api_key is None:
-            raise RuntimeError("SCOPEGRAPH_API_KEY is required when public_bind is enabled")
-        application.add_middleware(ApiKeyMiddleware, api_key=settings.api_key.get_secret_value())
+        api_key = settings.api_key.get_secret_value() if settings.api_key is not None else ""
+        if len(api_key.encode("utf-8")) < 32:
+            raise RuntimeError(
+                "SCOPEGRAPH_API_KEY must contain at least 32 bytes when public_bind is enabled"
+            )
+        application.add_middleware(ApiKeyMiddleware, api_key=api_key)
     install_exception_handlers(application)
     application.include_router(health_router)
     application.include_router(projects_router)

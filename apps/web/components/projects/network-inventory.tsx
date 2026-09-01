@@ -17,9 +17,12 @@ import {
   ScanRunOverviewPage,
 } from "./api";
 import { AttackSurfaceOverview } from "./attack-surface-overview";
+import { evidenceModeQuery, type EvidenceMode } from "./evidence-mode";
+import { useEvidenceMode } from "./use-evidence-mode";
 
 interface NetworkInventoryProps {
   projectId: string;
+  initialMode?: EvidenceMode;
 }
 
 const classifications: IPClassification[] = [
@@ -31,7 +34,7 @@ const classifications: IPClassification[] = [
   "PRIVATE_RESERVED",
 ];
 
-export function NetworkInventory({ projectId }: NetworkInventoryProps) {
+export function NetworkInventory({ projectId, initialMode = "host" }: NetworkInventoryProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [ips, setIps] = useState<IPInventory[]>([]);
   const [ports, setPorts] = useState<PortInventory[]>([]);
@@ -48,15 +51,16 @@ export function NetworkInventory({ projectId }: NetworkInventoryProps) {
   const [ignoredMappings, setIgnoredMappings] = useState(0);
   const [latestPortJob, setLatestPortJob] = useState<ScanJob | null>(null);
   const [attackSurface, setAttackSurface] = useState<AttackSurfacePage | null>(null);
+  const [mode, setMode] = useEvidenceMode(initialMode);
 
   const load = useCallback(async () => {
     try {
       const [projectData, ipData, portData, runData, surfaceData] = await Promise.all([
         apiRequest<Project>(`projects/${projectId}`),
-        apiRequest<IPInventoryPage>(`projects/${projectId}/ips-page?page=${ipPage}&page_size=100`),
-        apiRequest<PortInventoryPage>(`projects/${projectId}/ports-page?page=${portPage}&page_size=100`),
-        apiRequest<ScanRunOverviewPage>(`projects/${projectId}/scan-runs-overview?page=1&page_size=10`),
-        apiRequest<AttackSurfacePage>(`projects/${projectId}/attack-surface?page=1&page_size=200`),
+        apiRequest<IPInventoryPage>(`projects/${projectId}/ips-page?page=${ipPage}&page_size=100&execution_mode=${mode}`),
+        apiRequest<PortInventoryPage>(`projects/${projectId}/ports-page?page=${portPage}&page_size=100&execution_mode=${mode}`),
+        apiRequest<ScanRunOverviewPage>(`projects/${projectId}/scan-runs-overview?page=1&page_size=10&execution_mode=${mode}`),
+        apiRequest<AttackSurfacePage>(`projects/${projectId}/attack-surface?page=1&page_size=200&execution_mode=${mode}`),
       ]);
       setProject(projectData);
       setIps(ipData.items);
@@ -75,7 +79,7 @@ export function NetworkInventory({ projectId }: NetworkInventoryProps) {
     } finally {
       setLoading(false);
     }
-  }, [ipPage, portPage, projectId]);
+  }, [ipPage, mode, portPage, projectId]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -117,12 +121,16 @@ export function NetworkInventory({ projectId }: NetworkInventoryProps) {
           <p>DNS 解析不等于 IP 所有权；分类、Scope 与 Profile 共同决定可扫描端口。</p>
         </div>
         <div className="inventory-nav">
-          <Link className="button-secondary" href={`/projects/${projectId}/scope`}>Scope 与资产</Link>
+          <Link className="button-secondary" href={`/projects/${projectId}/scope${evidenceModeQuery(mode)}`}>Scope 与资产</Link>
           <Link className="button-secondary" href={`/projects/${projectId}/scans`}>任务中心</Link>
         </div>
       </section>
 
       {error ? <p className="form-error global-error" role="alert">{error}</p> : null}
+
+      <section className="website-toolbar" aria-label="网络证据来源">
+        <label><span>证据来源</span><select value={mode} onChange={(event) => { setMode(event.target.value as EvidenceMode); setIpPage(1); setPortPage(1); }}><option value="host">真实扫描结果</option><option value="fixture">演示扫描结果</option></select></label>
+      </section>
 
       {latestPortJob?.status === "SKIPPED" ? <section className="enterprise-alert is-error" role="status">
         <strong>最近一次端口阶段未执行</strong>
@@ -139,7 +147,7 @@ export function NetworkInventory({ projectId }: NetworkInventoryProps) {
         <p>系统保留了 {ignoredMappings} 条历史代理映射用于审计，但不会再把它们显示为目标 IP、加入端口清单或用于主动扫描。下一次真实扫描会通过独立 DoH 补充公网地址。</p>
       </section> : null}
 
-      {attackSurface ? <AttackSurfaceOverview projectId={projectId} data={attackSurface} /> : null}
+      {attackSurface ? <AttackSurfaceOverview projectId={projectId} data={attackSurface} mode={mode} /> : null}
 
       <details className="scope-panel execution-audit-panel">
         <summary>

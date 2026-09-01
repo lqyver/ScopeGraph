@@ -71,6 +71,9 @@ RUN apt-get -o Acquire::Retries=4 update \
 # Docker cache and made Chromium/Nmap installation unexpectedly large and fragile.
 FROM python:3.12-slim-bookworm AS runtime
 
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://security.debian.org/debian-security
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -82,13 +85,13 @@ WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     set -eux; \
-    # `deb.debian.org` intermittently returned truncated packages on the Docker
-    # Desktop path.  Use a responsive signed Debian mirror for this runtime layer.
+    case "$DEBIAN_MIRROR" in http://*|https://*) ;; *) echo "Invalid DEBIAN_MIRROR" >&2; exit 2;; esac; \
+    case "$DEBIAN_SECURITY_MIRROR" in http://*|https://*) ;; *) echo "Invalid DEBIAN_SECURITY_MIRROR" >&2; exit 2;; esac; \
     rm -f /etc/apt/sources.list.d/debian.sources; \
     printf '%s\n' \
-      'deb http://mirrors.ustc.edu.cn/debian bookworm main' \
-      'deb http://mirrors.ustc.edu.cn/debian bookworm-updates main' \
-      'deb http://security.debian.org/debian-security bookworm-security main' \
+      "deb $DEBIAN_MIRROR bookworm main" \
+      "deb $DEBIAN_MIRROR bookworm-updates main" \
+      "deb $DEBIAN_SECURITY_MIRROR bookworm-security main" \
       > /etc/apt/sources.list; \
     for attempt in 1 2 3 4; do \
       if apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=4 -o Acquire::http::Pipeline-Depth=0 \
@@ -106,10 +109,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         --shell /usr/sbin/nologin scopegraph
 
 COPY pyproject.toml README.md alembic.ini ./
+COPY constraints ./constraints
 COPY apps ./apps
 COPY scopegraph ./scopegraph
 
-RUN --mount=type=cache,target=/root/.cache/pip python -m pip install .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --constraint constraints/python312.txt .
 
 # Copy after pip installation so ProjectDiscovery's httpx binary wins over the
 # Python package's optional command with the same name.

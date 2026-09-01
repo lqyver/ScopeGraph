@@ -17,6 +17,7 @@ from scopegraph.tooling.adapters.nmap import (
 from scopegraph.tooling.adapters.nmap import (
     nmap_command as build_exact_nmap_command,
 )
+from scopegraph.tooling.adapters.nuclei import NucleiAdapter
 from scopegraph.tooling.adapters.puredns import PurednsAdapter
 from scopegraph.tooling.adapters.screenshot import ScreenshotAdapter
 from scopegraph.tooling.adapters.subfinder import SubfinderAdapter
@@ -325,12 +326,27 @@ def test_katana_adapter_enforces_bounded_non_mutating_crawl_policy() -> None:
     assert "-omit-raw" in command and "-omit-body" in command
     assert "-iqp" in command and "-fsu" in command
     assert command[command.index("-r") + 1].startswith("doh:https://1.1.1.1/")
+    assert command[command.index("-exclude") + 1] == "private-ips"
     assert "-aff" not in command
     assert "-H" not in command
     assert "-headless" not in command
     assert adapter.stdin_bytes(validated) == b"https://www.example.com/\n"
     with pytest.raises(ValidationError):
         adapter.validate_input({"urls": ["https://example.com"], "headers": ["Cookie: x"]})
+
+
+def test_nuclei_adapter_blocks_local_network_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = NucleiAdapter()
+    monkeypatch.setattr(adapter, "installation_path", lambda: "/usr/local/bin/nuclei")
+    validated = adapter.validate_input({"urls": ["https://www.example.com/"]})
+
+    command = adapter.build_command(validated)
+
+    assert "-restrict-local-network-access" in command
+    assert "-no-interactsh" in command
+    assert "-headless" not in command
 
 
 def test_katana_fixture_distinguishes_external_and_non_get_endpoints() -> None:

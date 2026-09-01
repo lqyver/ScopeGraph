@@ -427,8 +427,8 @@ async def list_assets(
         conditions.append(Asset.scope_status == scope_status)
     if execution_mode is not None:
         matching_runs = select(ScanRun.id).where(
-            ScanRun.project_id == project_id,
-            ScanRun.config_snapshot["execution_mode"].astext == execution_mode,
+        ScanRun.project_id == project_id,
+        ScanRun.execution_mode == execution_mode,
         )
         observed = exists(
             select(Observation.id).where(

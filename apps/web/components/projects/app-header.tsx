@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 export function AppHeader() {
+  const edition = process.env.SCOPEGRAPH_EDITION === "internal" ? "INTERNAL" : "COMMUNITY";
   return (
     <header className="topbar">
       <Link className="brand" href="/" aria-label="ScopeGraph 首页">
@@ -9,7 +10,7 @@ export function AppHeader() {
         </span>
         <span>
           <strong>ScopeGraph</strong>
-          <small>PUBLIC ATTACK SURFACE</small>
+          <small>{edition} EDITION · PUBLIC ATTACK SURFACE</small>
         </span>
       </Link>
       <nav className="main-nav" aria-label="主导航">

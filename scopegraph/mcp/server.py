@@ -20,7 +20,8 @@ rules, and a ready-to-call next action. No local documentation is required. Befo
 collection, load scopegraph_all_in_one_snapshot and check the exact target with check_scope. Reuse
 existing scan evidence where possible. Poll scan_run_detail for long work. Progress is
 execution completion, not coverage, and automated findings are never confirmed
-vulnerabilities. This MCP cannot
+vulnerabilities. Read tools default to execution_mode="host" (real evidence); request
+execution_mode="fixture" only for an explicitly labeled demonstration. This MCP cannot
 approve or expand Scope and never offers Deep, Custom, full-port, or Nuclei execution.
 """.strip()
 READ_ONLY = ToolAnnotations(
@@ -128,10 +129,14 @@ def create_mcp_server(
         annotations=READ_ONLY,
     )
     async def scopegraph_all_in_one_snapshot(
-        project_id: str, limit: int = 50
+        project_id: str,
+        execution_mode: ExecutionMode = "host",
+        limit: int = 50,
     ) -> dict[str, Any]:
         """Use this after bootstrap when an Agent needs the complete current intelligence view."""
-        return await service.all_in_one_snapshot(project_id, limit=limit)
+        return await service.all_in_one_snapshot(
+            project_id, limit=limit, execution_mode=execution_mode
+        )
 
     @server.tool(
         title="Domain attack-surface overview",
@@ -143,10 +148,14 @@ def create_mcp_server(
         annotations=READ_ONLY,
     )
     async def scopegraph_attack_surface_overview(
-        project_id: str, limit: int = 50
+        project_id: str,
+        execution_mode: ExecutionMode = "host",
+        limit: int = 50,
     ) -> dict[str, Any]:
         """Use this when an Agent needs ports and technologies correlated to each domain."""
-        return await service.attack_surface_overview(project_id, limit=limit)
+        return await service.attack_surface_overview(
+            project_id, limit=limit, execution_mode=execution_mode
+        )
 
     @server.tool(annotations=READ_ONLY)
     async def scopegraph_check_scope(
@@ -164,6 +173,7 @@ def create_mcp_server(
         page_size: int = 50,
         asset_type: AssetTypeName | None = None,
         scope_status: ScopeStatusName | None = None,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         """List normalized assets with evidence-derived Scope and ownership fields."""
         return await service.list_assets(
@@ -172,40 +182,72 @@ def create_mcp_server(
             page_size=page_size,
             asset_type=asset_type,
             scope_status=scope_status,
+            execution_mode=execution_mode,
         )
 
     @server.tool(annotations=READ_ONLY)
     async def scopegraph_list_websites(
-        project_id: str, page: int = 1, page_size: int = 50
+        project_id: str,
+        page: int = 1,
+        page_size: int = 50,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         """List observed websites, status, title, technologies, and evidence metadata."""
-        return await service.list_websites(project_id, page=page, page_size=page_size)
+        return await service.list_websites(
+            project_id,
+            page=page,
+            page_size=page_size,
+            execution_mode=execution_mode,
+        )
 
     @server.tool(annotations=READ_ONLY)
-    async def scopegraph_website_detail(website_id: str) -> dict[str, Any]:
+    async def scopegraph_website_detail(
+        website_id: str,
+        execution_mode: ExecutionMode = "host",
+    ) -> dict[str, Any]:
         """Get one website's latest snapshot, technologies, certificates, filings, and endpoints."""
-        return await service.website_detail(website_id)
+        return await service.website_detail(website_id, execution_mode=execution_mode)
 
     @server.tool(annotations=READ_ONLY)
     async def scopegraph_network_inventory(
         project_id: str,
         scan_run_id: str | None = None,
         limit: int = 100,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         """Get bounded IP and port inventory. Shared/CDN IP ownership is not implied."""
-        return await service.network_inventory(project_id, scan_run_id=scan_run_id, limit=limit)
+        return await service.network_inventory(
+            project_id,
+            scan_run_id=scan_run_id,
+            limit=limit,
+            execution_mode=execution_mode,
+        )
 
     @server.tool(annotations=READ_ONLY)
-    async def scopegraph_list_findings(project_id: str, limit: int = 100) -> dict[str, Any]:
+    async def scopegraph_list_findings(
+        project_id: str,
+        execution_mode: ExecutionMode = "host",
+        limit: int = 100,
+    ) -> dict[str, Any]:
         """List low-risk discovery findings; every automated finding remains unverified."""
-        return await service.list_findings(project_id, limit=limit)
+        return await service.list_findings(
+            project_id, limit=limit, execution_mode=execution_mode
+        )
 
     @server.tool(annotations=READ_ONLY)
     async def scopegraph_list_scan_runs(
-        project_id: str, page: int = 1, page_size: int = 20
+        project_id: str,
+        page: int = 1,
+        page_size: int = 20,
+        execution_mode: ExecutionMode | None = None,
     ) -> dict[str, Any]:
         """List scan history and execution summaries for one project."""
-        return await service.list_scan_runs(project_id, page=page, page_size=page_size)
+        return await service.list_scan_runs(
+            project_id,
+            page=page,
+            page_size=page_size,
+            execution_mode=execution_mode,
+        )
 
     @server.tool(annotations=READ_ONLY)
     async def scopegraph_scan_run_detail(scan_run_id: str) -> dict[str, Any]:

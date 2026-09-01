@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -10,13 +10,14 @@ from scopegraph.application.services.exports import (
     get_export_or_404,
     resolve_export_path,
 )
-from scopegraph.application.services.findings import list_findings, review_finding
+from scopegraph.application.services.findings import list_findings, page_findings, review_finding
 from scopegraph.application.services.history import compare_scan_runs
 from scopegraph.application.services.storage import cleanup_storage, storage_status
 from scopegraph.infrastructure.database import get_session
 from scopegraph.schemas.phase6 import (
     ExportCreate,
     ExportRead,
+    FindingPage,
     FindingRead,
     FindingReviewRequest,
     ScanDiffRead,
@@ -30,8 +31,41 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("/projects/{project_id}/findings", response_model=list[FindingRead])
-async def findings_endpoint(project_id: UUID, session: Session) -> list[FindingRead]:
-    return [FindingRead.model_validate(item) for item in await list_findings(session, project_id)]
+async def findings_endpoint(
+    project_id: UUID,
+    session: Session,
+    execution_mode: Literal["host", "fixture"] = "host",
+    limit: int = Query(default=100, ge=1, le=200),
+) -> list[FindingRead]:
+    return [
+        FindingRead.model_validate(item)
+        for item in await list_findings(
+            session, project_id, execution_mode=execution_mode, limit=limit
+        )
+    ]
+
+
+@router.get("/projects/{project_id}/findings-page", response_model=FindingPage)
+async def findings_page_endpoint(
+    project_id: UUID,
+    session: Session,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=200),
+    execution_mode: Literal["host", "fixture"] = "host",
+) -> FindingPage:
+    items, total = await page_findings(
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
+    )
+    return FindingPage(
+        items=[FindingRead.model_validate(item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.post("/findings/{finding_id}/review", response_model=FindingRead)
@@ -62,7 +96,13 @@ async def create_export_endpoint(
     project_id: UUID, payload: ExportCreate, session: Session
 ) -> ExportRead:
     return ExportRead.model_validate(
-        await create_export(session, project_id, payload.export_format, payload.export_scope)
+        await create_export(
+            session,
+            project_id,
+            payload.export_format,
+            payload.export_scope,
+            payload.execution_mode,
+        )
     )
 
 

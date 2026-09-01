@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -58,8 +58,15 @@ async def project_runs(
     session: Session,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    execution_mode: Literal["host", "fixture"] | None = None,
 ) -> ScanRunPage:
-    items, total = await list_scan_runs(session, project_id, page=page, page_size=page_size)
+    items, total = await list_scan_runs(
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
+    )
     return ScanRunPage(items=items, page=page, page_size=page_size, total=total)
 
 
@@ -72,9 +79,14 @@ async def project_runs_overview(
     session: Session,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
+    execution_mode: Literal["host", "fixture"] | None = None,
 ) -> ScanRunOverviewPage:
     runs, jobs_by_run, total = await list_scan_overview(
-        session, project_id, page=page, page_size=page_size
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
     )
     return ScanRunOverviewPage(
         items=[

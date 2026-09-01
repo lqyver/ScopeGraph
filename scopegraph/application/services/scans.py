@@ -3,6 +3,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from scopegraph.application.errors import ScopeGraphError
 from scopegraph.application.services.projects import get_project_or_404
@@ -173,6 +174,7 @@ async def create_scan_run(
     run = ScanRun(
         project_id=project_id,
         profile=payload.profile,
+        execution_mode=payload.execution_mode,
         config_snapshot=config_snapshot,
         status=ScanStatus.QUEUED,
         progress=0,
@@ -208,16 +210,22 @@ async def create_scan_run(
 
 
 async def list_scan_runs(
-    session: AsyncSession, project_id: UUID, *, page: int, page_size: int
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    page: int,
+    page_size: int,
+    execution_mode: str | None = None,
 ) -> tuple[list[ScanRun], int]:
     await get_project_or_404(session, project_id)
-    total = await session.scalar(
-        select(func.count(ScanRun.id)).where(ScanRun.project_id == project_id)
-    )
+    conditions: list[ColumnElement[bool]] = [ScanRun.project_id == project_id]
+    if execution_mode is not None:
+        conditions.append(ScanRun.execution_mode == execution_mode)
+    total = await session.scalar(select(func.count(ScanRun.id)).where(*conditions))
     items = list(
         await session.scalars(
             select(ScanRun)
-            .where(ScanRun.project_id == project_id)
+            .where(*conditions)
             .order_by(ScanRun.created_at.desc())
             .offset((page - 1) * page_size)
             .limit(page_size)
@@ -238,9 +246,20 @@ async def list_scan_jobs(session: AsyncSession, scan_run_id: UUID) -> list[ScanJ
 
 
 async def list_scan_overview(
-    session: AsyncSession, project_id: UUID, *, page: int, page_size: int
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    page: int,
+    page_size: int,
+    execution_mode: str | None = None,
 ) -> tuple[list[ScanRun], dict[UUID, list[ScanJob]], int]:
-    runs, total = await list_scan_runs(session, project_id, page=page, page_size=page_size)
+    runs, total = await list_scan_runs(
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
+    )
     jobs_by_run: dict[UUID, list[ScanJob]] = {run.id: [] for run in runs}
     if runs:
         jobs = list(

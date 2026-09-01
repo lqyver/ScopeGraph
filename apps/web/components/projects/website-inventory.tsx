@@ -12,10 +12,13 @@ import {
   Project,
   WebsitePage,
 } from "./api";
+import { evidenceModeQuery, type EvidenceMode } from "./evidence-mode";
 import { filterWebsites, websiteStats } from "./website-utils";
+import { useEvidenceMode } from "./use-evidence-mode";
 
 interface WebsiteInventoryProps {
   projectId: string;
+  initialMode?: EvidenceMode;
 }
 
 const filingLabels = {
@@ -39,7 +42,7 @@ function TechnologyChips({ technologies, limit = 5 }: { technologies: string[]; 
   </div>;
 }
 
-export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
+export function WebsiteInventory({ projectId, initialMode = "host" }: WebsiteInventoryProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [data, setData] = useState<WebsitePage | null>(null);
   const [filings, setFilings] = useState<ICPRecord[]>([]);
@@ -49,7 +52,7 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [mode, setMode] = useState<"host" | "fixture">("host");
+  const [mode, setMode] = useEvidenceMode(initialMode);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const refreshInFlight = useRef(false);
@@ -63,7 +66,7 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
       const [projectResult, websiteResult, filingResult, endpointResult] = await Promise.allSettled([
         apiRequest<Project>(`projects/${projectId}`),
         apiRequest<WebsitePage>(`projects/${projectId}/websites?page=${page}&page_size=50&execution_mode=${mode}`),
-        apiRequest<ICPRecord[]>(`projects/${projectId}/icp-records`),
+        apiRequest<ICPRecord[]>(`projects/${projectId}/icp-records?execution_mode=${mode}`),
         apiRequest<Endpoint[]>(`projects/${projectId}/endpoints?execution_mode=${mode}&limit=200`),
       ]);
       if (projectResult.status === "fulfilled") setProject(projectResult.value);
@@ -117,8 +120,8 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
           <p>截图、TLS、技术栈、备案和爬虫端点均保留来源；推断证据不会冒充页面直接证据。</p>
         </div>
         <div className="inventory-nav">
-          <Link className="button-secondary" href={`/projects/${projectId}/scope`}>Scope 与资产</Link>
-          <Link className="button-secondary" href={`/projects/${projectId}/network`}>网络清单</Link>
+          <Link className="button-secondary" href={`/projects/${projectId}/scope${evidenceModeQuery(mode)}`}>Scope 与资产</Link>
+          <Link className="button-secondary" href={`/projects/${projectId}/network${evidenceModeQuery(mode)}`}>网络清单</Link>
           <Link className="button-secondary" href={`/projects/${projectId}/scans`}>任务中心</Link>
         </div>
       </section>
@@ -162,10 +165,10 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
         <section className="website-grid" aria-label="网站截图墙">
           {visible.map((website) => (
             <article className="website-card" key={website.id}>
-              <Link className="website-capture" href={`/websites/${website.id}`} aria-label={`查看 ${website.title ?? website.url} 详情`}>
+              <Link className="website-capture" href={`/websites/${website.id}${evidenceModeQuery(mode)}`} aria-label={`查看 ${website.title ?? website.url} 详情`}>
                 {website.screenshot_path ? (
                   <Image
-                    src={`/api/backend/websites/${website.id}/screenshot`}
+                    src={`/api/backend/websites/${website.id}/screenshot${evidenceModeQuery(mode)}`}
                     alt={`${website.title ?? website.url} 页面截图`}
                     width={1280}
                     height={720}
@@ -189,7 +192,7 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
                   <div><dt>CDN/WAF</dt><dd>{website.cdn_waf.join(" · ") || "未识别"}</dd></div>
                   <div><dt>备案</dt><dd>{filingLabels[website.icp_status]}</dd></div>
                 </dl>
-                <Link className="website-detail-link" href={`/websites/${website.id}`}>查看完整证据 →</Link>
+                <Link className="website-detail-link" href={`/websites/${website.id}${evidenceModeQuery(mode)}`}>查看完整证据 →</Link>
               </div>
             </article>
           ))}
@@ -201,7 +204,7 @@ export function WebsiteInventory({ projectId }: WebsiteInventoryProps) {
               <thead><tr><th>网站</th><th>状态</th><th>IP / 端口</th><th>技术栈</th><th>CDN/WAF</th><th>备案证据</th><th>端点</th></tr></thead>
               <tbody>{visible.map((website) => (
                 <tr key={website.id}>
-                  <td><Link href={`/websites/${website.id}`}><strong>{website.title ?? "未提取标题"}</strong><code>{website.url}</code></Link></td>
+                  <td><Link href={`/websites/${website.id}${evidenceModeQuery(mode)}`}><strong>{website.title ?? "未提取标题"}</strong><code>{website.url}</code></Link></td>
                   <td><span className={`scope-state ${website.is_alive ? "state-in_scope" : "state-out_of_scope"}`}>{website.status_code ?? "ERR"}</span></td>
                   <td>{website.ip ?? "—"}:{website.port ?? "—"}</td>
                   <td><TechnologyChips technologies={website.technologies} /></td>

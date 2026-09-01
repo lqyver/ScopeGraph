@@ -13,6 +13,7 @@ from scopegraph.application.services.scan_execution import (
     _job_waves,
     _naabu_output_looks_intercepted,
     _preferred_crawl_urls,
+    _scan_run_lock_key,
 )
 from scopegraph.application.services.scans import _stage_timeout_seconds
 from scopegraph.domain.enums import ScanProfile, ScopeAction, ScopeRuleType
@@ -36,7 +37,7 @@ def test_naabu_saturation_guard_quarantines_large_all_open_results() -> None:
     assert normal_ratio < 0.02
 
 
-def test_naabu_saturation_guard_ignores_small_intentional_checks() -> None:
+def test_naabu_saturation_guard_quarantines_small_all_open_results() -> None:
     suspicious, _ = _naabu_output_looks_intercepted(
         {
             "scan_targets": 2,
@@ -46,7 +47,28 @@ def test_naabu_saturation_guard_ignores_small_intentional_checks() -> None:
         4,
     )
 
-    assert suspicious is False
+    assert suspicious is True
+
+    partial, ratio = _naabu_output_looks_intercepted(
+        {
+            "scan_targets": 2,
+            "ports_tested_per_target": 2,
+            "candidate_socket_checks": 4,
+        },
+        2,
+    )
+    assert partial is False
+    assert ratio == 0.5
+
+
+def test_scan_run_lock_key_is_stable_signed_int64() -> None:
+    run_id = uuid4()
+
+    first = _scan_run_lock_key(run_id)
+
+    assert first == _scan_run_lock_key(run_id)
+    assert -(2**63) <= first < 2**63
+    assert first != _scan_run_lock_key(uuid4())
 
 
 @pytest.mark.asyncio

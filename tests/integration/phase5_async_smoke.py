@@ -2,13 +2,16 @@
 
 import http.client
 import json
+import os
 import time
 from typing import Any
 from uuid import uuid4
 
+API_PORT = int(os.getenv("SCOPEGRAPH_API_HOST_PORT", "18000"))
+
 
 def request(method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
-    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=15)
+    connection = http.client.HTTPConnection("127.0.0.1", API_PORT, timeout=15)
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"content-type": "application/json"} if body is not None else {}
     connection.request(method, path, body=body, headers=headers)

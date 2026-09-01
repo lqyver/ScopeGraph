@@ -24,6 +24,7 @@ import {
   runResultLine,
   scanStatusLabel,
 } from "./scan-utils";
+import { evidenceModeQuery } from "./evidence-mode";
 
 interface ScanCenterProps {
   projectId: string;
@@ -289,9 +290,9 @@ export function ScanCenter({ projectId }: ScanCenterProps) {
           <p>{runResultLine(runs[0], jobs[runs[0].id] ?? [])}</p>
         </div>
         <div className="inventory-nav">
-          <Link className="button-primary" href={`/projects/${projectId}/websites`}>查看网站结果</Link>
-          <Link className="button-secondary" href={`/projects/${projectId}/scope`}>查看全部资产</Link>
-          <Link className="button-secondary" href={`/projects/${projectId}/network`}>查看网络结果</Link>
+          <Link className="button-primary" href={`/projects/${projectId}/websites${evidenceModeQuery(runs[0].config_snapshot.execution_mode)}`}>查看网站结果</Link>
+          <Link className="button-secondary" href={`/projects/${projectId}/scope${evidenceModeQuery(runs[0].config_snapshot.execution_mode)}`}>查看全部资产</Link>
+          <Link className="button-secondary" href={`/projects/${projectId}/network${evidenceModeQuery(runs[0].config_snapshot.execution_mode)}`}>查看网络结果</Link>
         </div>
       </section> : null}
 
@@ -388,7 +389,7 @@ export function ScanCenter({ projectId }: ScanCenterProps) {
             </div>
             {terminal.has(run.status) ? <div className="run-result-summary">
               <p>{runResultLine(run, jobs[run.id] ?? [])}</p>
-              <div className="inventory-nav"><Link className="button-primary" href={`/projects/${projectId}/websites`}>网站结果</Link><Link className="button-secondary" href={`/projects/${projectId}/scope`}>全部资产</Link><Link className="button-secondary" href={`/projects/${projectId}/network`}>网络结果</Link></div>
+              <div className="inventory-nav"><Link className="button-primary" href={`/projects/${projectId}/websites${evidenceModeQuery(run.config_snapshot.execution_mode)}`}>网站结果</Link><Link className="button-secondary" href={`/projects/${projectId}/scope${evidenceModeQuery(run.config_snapshot.execution_mode)}`}>全部资产</Link><Link className="button-secondary" href={`/projects/${projectId}/network${evidenceModeQuery(run.config_snapshot.execution_mode)}`}>网络结果</Link></div>
             </div> : null}
             <div className="job-list">
               {(jobs[run.id] ?? []).map((job) => (

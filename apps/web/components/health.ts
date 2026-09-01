@@ -9,6 +9,7 @@ export interface HealthCheck {
 export interface HealthReport {
   status: CheckStatus;
   version: string;
+  edition: "internal" | "community";
   environment: string;
   checked_at: string;
   checks: Record<string, HealthCheck>;
@@ -20,6 +21,7 @@ export function isHealthReport(value: unknown): value is HealthReport {
   return (
     (candidate.status === "healthy" || candidate.status === "unhealthy") &&
     typeof candidate.version === "string" &&
+    (candidate.edition === "internal" || candidate.edition === "community") &&
     typeof candidate.checks === "object" &&
     candidate.checks !== null
   );

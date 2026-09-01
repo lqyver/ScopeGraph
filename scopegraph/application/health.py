@@ -25,6 +25,7 @@ class HealthCheck(BaseModel):
 class HealthReport(BaseModel):
     status: Literal["healthy", "unhealthy"]
     version: str
+    edition: Literal["internal", "community"]
     environment: str
     checked_at: datetime
     checks: dict[str, HealthCheck]
@@ -88,6 +89,7 @@ async def build_health_report() -> HealthReport:
     return HealthReport(
         status=overall,
         version=__version__,
+        edition=settings.edition,
         environment=settings.environment,
         checked_at=datetime.now(UTC),
         checks=checks,

@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -18,5 +18,12 @@ async def attack_surface_endpoint(
     session: Session,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    execution_mode: Literal["host", "fixture"] = "host",
 ) -> AttackSurfacePage:
-    return await page_attack_surface(session, project_id, page=page, page_size=page_size)
+    return await page_attack_surface(
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
+    )

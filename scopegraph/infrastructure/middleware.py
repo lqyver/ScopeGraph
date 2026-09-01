@@ -43,8 +43,13 @@ class ApiKeyMiddleware:
             await self.app(scope, receive, send)
             return
         headers = dict(scope.get("headers", []))
-        supplied = headers.get(b"x-scopegraph-api-key", b"").decode("utf-8", errors="ignore")
-        if not compare_digest(supplied, self.api_key):
+        supplied_header = headers.get(b"x-scopegraph-api-key")
+        supplied = (
+            supplied_header.decode("utf-8", errors="ignore").strip()
+            if supplied_header is not None
+            else ""
+        )
+        if not supplied or not compare_digest(supplied, self.api_key):
             await send(
                 {
                     "type": "http.response.start",

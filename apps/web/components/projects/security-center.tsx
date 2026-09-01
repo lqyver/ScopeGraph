@@ -9,6 +9,7 @@ import {
   errorMessage,
   ExportArtifact,
   Finding,
+  FindingPage,
   Project,
   ScanJob,
   ScanDiff,
@@ -16,11 +17,13 @@ import {
   ScanRunOverviewPage,
 } from "./api";
 import { AttackSurfaceOverview } from "./attack-surface-overview";
+import { evidenceModeQuery, type EvidenceMode } from "./evidence-mode";
 import { adapterLabel, jobIssueText, jobResultLine, scanStatusLabel } from "./scan-utils";
+import { useEvidenceMode } from "./use-evidence-mode";
 
-interface SecurityCenterProps { projectId: string; }
+interface SecurityCenterProps { projectId: string; initialMode?: EvidenceMode; }
 
-export function SecurityCenter({ projectId }: SecurityCenterProps) {
+export function SecurityCenter({ projectId, initialMode = "host" }: SecurityCenterProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [runs, setRuns] = useState<ScanRun[]>([]);
@@ -35,17 +38,19 @@ export function SecurityCenter({ projectId }: SecurityCenterProps) {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useEvidenceMode(initialMode);
+  const [findingTotal, setFindingTotal] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const [projectData, findingData, overviewData, surfaceData] = await Promise.all([
         apiRequest<Project>(`projects/${projectId}`),
-        apiRequest<Finding[]>(`projects/${projectId}/findings`),
-        apiRequest<ScanRunOverviewPage>(`projects/${projectId}/scan-runs-overview?page_size=20`),
-        apiRequest<AttackSurfacePage>(`projects/${projectId}/attack-surface?page=1&page_size=50`),
+        apiRequest<FindingPage>(`projects/${projectId}/findings-page?page=1&page_size=100&execution_mode=${mode}`),
+        apiRequest<ScanRunOverviewPage>(`projects/${projectId}/scan-runs-overview?page_size=20&execution_mode=${mode}`),
+        apiRequest<AttackSurfacePage>(`projects/${projectId}/attack-surface?page=1&page_size=50&execution_mode=${mode}`),
       ]);
       const runItems = overviewData.items.map((item) => item.run);
-      setProject(projectData); setFindings(findingData); setRuns(runItems);
+      setProject(projectData); setFindings(findingData.items); setFindingTotal(findingData.total); setRuns(runItems);
       setNucleiJobs(overviewData.items.flatMap((item) => item.jobs.filter((job) => job.adapter_name === "nuclei")));
       setAttackSurface(surfaceData);
       setError(null);
@@ -53,7 +58,7 @@ export function SecurityCenter({ projectId }: SecurityCenterProps) {
       if (!toRun && runItems[0]) setToRun(runItems[0].id);
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setLoading(false); }
-  }, [fromRun, projectId, toRun]);
+  }, [fromRun, mode, projectId, toRun]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -75,7 +80,7 @@ export function SecurityCenter({ projectId }: SecurityCenterProps) {
     try {
       setCreatedExport(await apiRequest<ExportArtifact>(`projects/${projectId}/exports`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ export_format: format, export_scope: exportScope }),
+        body: JSON.stringify({ export_format: format, export_scope: exportScope, execution_mode: mode }),
       }));
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setWorking(false); }
@@ -101,8 +106,9 @@ export function SecurityCenter({ projectId }: SecurityCenterProps) {
   return <>
     <header className="security-heading"><div><p className="eyebrow">PHASE 6 / EVIDENCE & DELIVERY</p><h1>安全发现、历史与导出</h1><p>{project.name} · 工具命中不是漏洞结论，所有状态均保留人工复核轨迹。</p></div><Link className="button-secondary" href={`/projects/${projectId}/scans`}>扫描任务 →</Link></header>
     {error && <div className="enterprise-alert is-error" role="alert">{error}</div>}
-    {attackSurface ? <AttackSurfaceOverview projectId={projectId} data={attackSurface} compact /> : null}
-    <section className="security-section"><div className="section-heading"><div><p className="section-index">01 / UNVERIFIED FINDINGS</p><h2>安全发现 {findings.length}</h2></div></div>
+    <section className="website-toolbar" aria-label="安全证据来源"><label><span>证据来源</span><select value={mode} onChange={(event) => { setMode(event.target.value as EvidenceMode); setFromRun(""); setToRun(""); setDiff(null); }}><option value="host">真实扫描结果</option><option value="fixture">演示扫描结果</option></select></label><Link className="button-secondary" href={`/projects/${projectId}/network${evidenceModeQuery(mode)}`}>对应网络证据</Link></section>
+    {attackSurface ? <AttackSurfaceOverview projectId={projectId} data={attackSurface} compact mode={mode} /> : null}
+    <section className="security-section"><div className="section-heading"><div><p className="section-index">01 / UNVERIFIED FINDINGS</p><h2>安全发现 {findingTotal}</h2></div></div>
       <div className="inventory-summary security-scan-health">
         <div><span>检查状态</span><strong>{latestNuclei ? scanStatusLabel(latestNuclei.status) : "未启用"}</strong></div>
         <div><span>本次仍出现</span><strong>{activeFindings}</strong></div>

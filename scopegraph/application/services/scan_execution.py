@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, or_, select, update
+from sqlalchemy import delete, exists, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -133,6 +133,28 @@ def _run_should_stop(run: ScanRun) -> bool:
     return run.cancellation_requested or run.status is ScanStatus.PAUSED
 
 
+def _should_retire_nuclei_findings(
+    adapter_name: str,
+    outcome_status: ScanStatus,
+    preserve_budgeted_output: bool,
+    asset_budget_dropped: int = 0,
+) -> bool:
+    """Retire stale findings only after a complete Nuclei refresh."""
+
+    return (
+        adapter_name == "nuclei"
+        and outcome_status is ScanStatus.SUCCESS
+        and not preserve_budgeted_output
+        and asset_budget_dropped == 0
+    )
+
+
+def _scan_run_lock_key(scan_run_id: UUID) -> int:
+    """Map a run UUID to PostgreSQL's signed 64-bit advisory-lock namespace."""
+
+    return int.from_bytes(scan_run_id.bytes[:8], byteorder="big", signed=True)
+
+
 async def _rules(session: AsyncSession, project_id: UUID) -> list[ScopeRuleValue]:
     values = list(
         await session.scalars(select(ScopeRule).where(ScopeRule.project_id == project_id))
@@ -192,10 +214,13 @@ def _fixture_outcome(store: ArtifactStore, directory: Path, adapter_name: str) -
     stdout_path = store.path_for(directory, "stdout.raw")
     stderr_path = store.path_for(directory, "stderr.log")
     shutil.copyfile(_fixtures / f"{adapter_name}.jsonl", stdout_path)
+    side_artifacts: tuple[StoredArtifact, ...] = ()
     if adapter_name == "screenshot":
         screenshot_directory = directory / "screenshots"
         screenshot_directory.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(_fixtures / "screenshot.svg", screenshot_directory / "www.example.com.svg")
+        screenshot_path = screenshot_directory / "www.example.com.svg"
+        shutil.copyfile(_fixtures / "screenshot.svg", screenshot_path)
+        side_artifacts = (store.describe(screenshot_path),)
     stderr_path.write_bytes(b"")
     return ProcessOutcome(
         status=ScanStatus.SUCCESS,
@@ -203,6 +228,7 @@ def _fixture_outcome(store: ArtifactStore, directory: Path, adapter_name: str) -
         duration_seconds=0,
         stdout=store.describe(stdout_path),
         stderr=store.describe(stderr_path),
+        side_artifacts=side_artifacts,
     )
 
 
@@ -524,6 +550,7 @@ async def _persist_observations(
                         first_scan_run_id=run.id,
                         last_scan_run_id=run.id,
                         asset_id=subject_id,
+                        execution_mode=str(run.config_snapshot["execution_mode"]),
                         template_id=template_id,
                         template_name=template_name,
                         tool_version=payload.source_version,
@@ -544,7 +571,12 @@ async def _persist_observations(
                         updated_by="scan-worker",
                     )
                     .on_conflict_do_update(
-                        index_elements=[Finding.project_id, Finding.template_id, Finding.target],
+                        index_elements=[
+                            Finding.project_id,
+                            Finding.execution_mode,
+                            Finding.template_id,
+                            Finding.target,
+                        ],
                         set_={
                             "last_scan_run_id": run.id,
                             "tool_version": payload.source_version,
@@ -653,9 +685,9 @@ def _naabu_output_looks_intercepted(
     candidate_checks = summary_int("candidate_socket_checks")
     saturation = unique_open_endpoints / candidate_checks if candidate_checks else 0.0
     suspicious = (
-        targets >= 20
+        targets >= 1
         and ports_per_target >= 2
-        and candidate_checks >= 40
+        and candidate_checks >= 4
         and saturation >= 0.95
     )
     return suspicious, round(saturation, 4)
@@ -1234,6 +1266,11 @@ async def _execute_job(
                             working_directory=(
                                 directory if job.adapter_name == "screenshot" else None
                             ),
+                            side_artifact_directory=(
+                                directory / "screenshots"
+                                if job.adapter_name == "screenshot"
+                                else None
+                            ),
                         )
                     finally:
                         progress_stop.set()
@@ -1258,21 +1295,19 @@ async def _execute_job(
     )
     await _record_artifact(session, run, job, outcome.stderr, "stderr", "text/plain")
     if job.adapter_name == "screenshot":
-        for screenshot_path in sorted((directory / "screenshots").rglob("*")):
-            if not screenshot_path.is_file():
-                continue
+        for screenshot in outcome.side_artifacts:
             media_type = {
                 ".jpg": "image/jpeg",
                 ".jpeg": "image/jpeg",
                 ".png": "image/png",
                 ".svg": "image/svg+xml",
                 ".webp": "image/webp",
-            }.get(screenshot_path.suffix.casefold(), "application/octet-stream")
+            }.get(screenshot.absolute_path.suffix.casefold(), "application/octet-stream")
             await _record_artifact(
                 session,
                 run,
                 job,
-                store.describe(screenshot_path),
+                screenshot,
                 "screenshot",
                 media_type,
             )
@@ -1355,10 +1390,19 @@ async def _execute_job(
             job.error_code = exc.code
             job.error_message = str(exc)
         else:
-            if job.adapter_name == "nuclei":
+            if _should_retire_nuclei_findings(
+                job.adapter_name,
+                outcome.status,
+                preserve_budgeted_output,
+                budget_dropped,
+            ):
                 await session.execute(
                     update(Finding)
-                    .where(Finding.project_id == run.project_id, Finding.is_active.is_(True))
+                    .where(
+                        Finding.project_id == run.project_id,
+                        Finding.execution_mode == str(run.config_snapshot["execution_mode"]),
+                        Finding.is_active.is_(True),
+                    )
                     .values(is_active=False, updated_by="scan-worker", updated_at=func.now())
                 )
             observations, assets = await _persist_observations(session, run, payloads, rules)
@@ -1432,9 +1476,10 @@ async def _refresh_run_aggregate(
         [job.status for job in jobs],
         cancellation_requested=run.cancellation_requested,
     )
-    run.status = aggregate.status
+    paused = run.status is ScanStatus.PAUSED and not run.cancellation_requested
+    run.status = ScanStatus.PAUSED if paused else aggregate.status
     run.progress = aggregate.progress
-    if finalize and aggregate.progress == 100:
+    if finalize and aggregate.progress == 100 and not paused:
         run.finished_at = datetime.now(UTC)
     stage_seconds = round(
         sum(float(job.result_summary.get("duration_seconds", 0) or 0) for job in jobs), 3
@@ -1530,39 +1575,53 @@ async def execute_scan_run(scan_run_id: UUID) -> None:
     execution_engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     session_factory = async_sessionmaker(execution_engine, expire_on_commit=False)
     try:
-        async with session_factory() as session:
-            run = await session.get(ScanRun, scan_run_id)
-            if run is None or run.status in {ScanStatus.SUCCESS, ScanStatus.CANCELLED}:
-                return
-            if run.status is ScanStatus.PAUSED:
-                return
-            jobs = list(
-                await session.scalars(
-                    select(ScanJob)
-                    .where(ScanJob.scan_run_id == run.id)
-                    .order_by(ScanJob.sequence.asc())
-                )
+        lock_key = _scan_run_lock_key(scan_run_id)
+        async with execution_engine.connect() as lock_connection:
+            await lock_connection.execute(
+                text("SELECT pg_advisory_lock(:lock_key)"), {"lock_key": lock_key}
             )
-            for wave in _job_waves(jobs):
-                run = await session.get(ScanRun, scan_run_id, populate_existing=True)
-                if run is None:
-                    return
-                if _run_should_stop(run):
-                    break
-                runnable: list[UUID] = []
-                for job_id in wave:
-                    job = await session.get(ScanJob, job_id, populate_existing=True)
-                    if job is not None and job.status not in TERMINAL_STATUSES:
-                        runnable.append(job_id)
-                if runnable:
-                    await asyncio.gather(
-                        *(
-                            _execute_job_isolated(session_factory, store, scan_run_id, job_id)
-                            for job_id in runnable
+            await lock_connection.commit()
+            try:
+                async with session_factory() as session:
+                    run = await session.get(ScanRun, scan_run_id)
+                    if run is None or run.status in {ScanStatus.SUCCESS, ScanStatus.CANCELLED}:
+                        return
+                    if run.status is ScanStatus.PAUSED:
+                        return
+                    jobs = list(
+                        await session.scalars(
+                            select(ScanJob)
+                            .where(ScanJob.scan_run_id == run.id)
+                            .order_by(ScanJob.sequence.asc())
                         )
                     )
-                await _refresh_run_aggregate(session, scan_run_id)
+                    for wave in _job_waves(jobs):
+                        run = await session.get(ScanRun, scan_run_id, populate_existing=True)
+                        if run is None:
+                            return
+                        if _run_should_stop(run):
+                            break
+                        runnable: list[UUID] = []
+                        for job_id in wave:
+                            job = await session.get(ScanJob, job_id, populate_existing=True)
+                            if job is not None and job.status not in TERMINAL_STATUSES:
+                                runnable.append(job_id)
+                        if runnable:
+                            await asyncio.gather(
+                                *(
+                                    _execute_job_isolated(
+                                        session_factory, store, scan_run_id, job_id
+                                    )
+                                    for job_id in runnable
+                                )
+                            )
+                        await _refresh_run_aggregate(session, scan_run_id)
 
-            await _refresh_run_aggregate(session, scan_run_id, finalize=True)
+                    await _refresh_run_aggregate(session, scan_run_id, finalize=True)
+            finally:
+                await lock_connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_key)"), {"lock_key": lock_key}
+                )
+                await lock_connection.commit()
     finally:
         await execution_engine.dispose()

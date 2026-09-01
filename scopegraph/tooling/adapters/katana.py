@@ -135,6 +135,8 @@ class KatanaAdapter(ToolAdapter):
             "-fs",
             "fqdn",
             "-do",
+            "-exclude",
+            "private-ips",
             "-d",
             str(data.depth),
             "-jc",

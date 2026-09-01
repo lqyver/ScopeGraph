@@ -4,6 +4,10 @@
 
 [English](./README.md) · [简体中文](./README.zh-CN.md)
 
+> **Community Edition.** This Apache-2.0 checkout uses the isolated Compose project
+> `scopegraph-community` and host ports `18000`/`18001`/`18080` by default, so it does not reuse an
+> Internal Edition checkout's containers, images, or data volumes.
+
 ScopeGraph turns an explicitly confirmed root domain into a traceable asset graph. It is not a replacement for a one-off subdomain-enumeration command: it coordinates discovery, DNS validation, scoped network checks, web inventory, low-risk finding collection, historical comparison, and export in one local workflow.
 
 > **Authorized use only.** Use ScopeGraph only for assets you own or for which you have explicit permission to test. Discovery results are candidates, not proof of ownership; active operations require confirmed authorization and Scope rules.
@@ -48,7 +52,7 @@ Double-click [`Start-ScopeGraph.cmd`](./Start-ScopeGraph.cmd), or run:
 .\Start-ScopeGraph.cmd
 ```
 
-The script starts Docker Desktop if necessary, builds changed images, waits for API and web health, and opens the project page in the default browser. For automation, use `--no-open`; use `--no-build` only when you know that the current images match the source tree. Fast launches preserve matching healthy containers, so they do not interrupt an active scan.
+The script starts Docker Desktop if necessary, builds changed images, waits for API and web health, and opens the project page in the default browser. For automation, use `--no-open`; use `--no-build` only when you know that the current images match the source tree. Fast launches preserve matching healthy containers, so they do not interrupt an active scan. Use `--check` for a preflight that never starts services, or `--offline-check` to validate only the local CLI and Compose file without contacting Docker, a browser, or any target network.
 
 ### Docker Compose
 
@@ -61,9 +65,9 @@ docker compose exec api scopegraph doctor --json
 
 When the health report is ready, open:
 
-- Web UI: <http://127.0.0.1:8080/projects>
-- API documentation: <http://127.0.0.1:8000/docs>
-- MCP endpoint: <http://127.0.0.1:8001/mcp>
+- Web UI: <http://127.0.0.1:18080/projects>
+- API documentation: <http://127.0.0.1:18000/docs>
+- MCP endpoint: <http://127.0.0.1:18001/mcp>
 
 The default Compose configuration binds Web, API, and MCP only to `127.0.0.1`. PostgreSQL and Redis are internal-only services.
 
@@ -95,9 +99,9 @@ The bundled MCP server lets a connected agent use ScopeGraph without first readi
 ```json
 {
   "mcpServers": {
-    "scopegraph": {
+    "scopegraph-community": {
       "type": "http",
-      "url": "http://127.0.0.1:8001/mcp"
+      "url": "http://127.0.0.1:18001/mcp"
     }
   }
 }
@@ -142,15 +146,19 @@ docker compose down
 Docker is the supported runtime. For local development, install Python 3.12 and Node.js 20.9+ (or use the workspace-provided runtimes), then run:
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check apps scopegraph tests
+.\.venv\Scripts\python.exe -m pip install --constraint constraints/python312.txt -e ".[dev]"
+.\.venv\Scripts\python.exe -m ruff check apps scopegraph tests scripts
 .\.venv\Scripts\python.exe -m mypy apps scopegraph
 .\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe scripts\validate_public_release.py --allow-dirty
 npm --prefix apps/web run lint
 npm --prefix apps/web run typecheck
 npm --prefix apps/web run test
 ```
 
 The integration smoke suites use only repository fixtures. They do not contact real internet targets or invoke security tools against third parties.
+
+Docker builds use the official Debian mirrors by default. Operators who need a regional mirror can set `SCOPEGRAPH_DEBIAN_MIRROR` and `SCOPEGRAPH_DEBIAN_SECURITY_MIRROR` before building; the repository never silently changes these endpoints.
 
 ## Documentation
 
@@ -160,9 +168,12 @@ The integration smoke suites use only repository fixtures. They do not contact r
 - [Compatibility and tool policy](./docs/COMPATIBILITY.md)
 - [Backup and restore](./docs/BACKUP_RESTORE.md)
 - [Upgrade guide](./docs/UPGRADE.md)
+- [Community release process](./docs/RELEASE_PROCESS.md)
+- [Current public release readiness](./docs/PUBLIC_RELEASE_READINESS.md)
 - [Release notes](./RELEASE_NOTES_v1.0.0.md)
 - [Development guide / product contract](./ScopeGraph_PRD_Development_Guide_v1.0.md)
 - [Safe demonstration guide](./docs/SAFE_DEMO.md)
+- [Campus workshop demo](./docs/CAMPUS_DEMO.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Security policy](./SECURITY.md)
 - [Support](./SUPPORT.md)

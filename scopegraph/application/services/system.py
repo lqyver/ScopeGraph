@@ -113,6 +113,7 @@ def read_system_settings() -> SystemSettingsRead:
         except (OSError, json.JSONDecodeError):
             proxy_url = None
     return SystemSettingsRead(
+        edition=settings.edition,
         proxy_url=proxy_url,
         public_bind=settings.public_bind,
         api_key_configured=settings.api_key is not None,

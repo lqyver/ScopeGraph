@@ -23,12 +23,15 @@ async def test_health_report_is_healthy_when_dependencies_are_ready(
     monkeypatch.setattr(
         health_module,
         "get_settings",
-        lambda: Settings(environment="test", data_root=tmp_path, _env_file=None),
+        lambda: Settings(
+            edition="internal", environment="test", data_root=tmp_path, _env_file=None
+        ),
     )
 
     report = await health_module.build_health_report()
 
     assert report.status == "healthy"
+    assert report.edition == "internal"
     assert report.checks["storage"].status == "healthy"
 
 

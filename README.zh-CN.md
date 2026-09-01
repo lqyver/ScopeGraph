@@ -4,7 +4,10 @@ ScopeGraph 是面向合法授权安全测试的本地企业公网攻击面发现
 [`ScopeGraph_PRD_Development_Guide_v1.0.md`](./ScopeGraph_PRD_Development_Guide_v1.0.md)
 分阶段实现。
 
-当前版本为 **v1.0.0**，已完成开发书阶段 0–7。系统提供企业名称候选根域发现、可解释归属
+> **社区版本。** 本仓库采用 Apache-2.0，默认使用独立 Compose 项目 `scopegraph-community`
+> 以及宿主机端口 `18000`/`18001`/`18080`，不会复用内部版的容器、镜像或数据卷。
+
+当前版本为 **Community Edition Release Candidate**，已完成开发书阶段 0–7。系统提供企业名称候选根域发现、可解释归属
 评分、人工 Scope 审核、四类扫描 Profile、DNS/IP/端口/Web/备案资产图谱、Nuclei 低风险发现、
 任意扫描历史差异、五种导出格式、存储管理、工具兼容检查、代理/Burp 转发、Web 与 CLI。
 Standard/Deep Profile 使用受控并行 DAG：Subfinder 后 PureDNS 与 AlterX 并行，DNS 汇总后
@@ -36,11 +39,11 @@ ScopeGraph 的 All-in-One 价值不是替代 Subfinder 的五秒被动枚举，�
 
 | 服务 | 技术 | 本地地址/作用 |
 |---|---|---|
-| Web | Next.js + TypeScript | <http://127.0.0.1:8080> |
-| API | FastAPI | <http://127.0.0.1:8000> |
-| API 文档 | OpenAPI | <http://127.0.0.1:8000/docs> |
+| Web | Next.js + TypeScript | <http://127.0.0.1:18080> |
+| API | FastAPI | <http://127.0.0.1:18000> |
+| API 文档 | OpenAPI | <http://127.0.0.1:18000/docs> |
 | Worker | Dramatiq | Redis 队列消费者 |
-| MCP | 官方 Python SDK / Streamable HTTP | <http://127.0.0.1:8001/mcp>，供本地 Agent 接入 |
+| MCP | 官方 Python SDK / Streamable HTTP | <http://127.0.0.1:18001/mcp>，供本地 Agent 接入 |
 | Database | PostgreSQL | 仅 Compose 内部网络 |
 | Queue | Redis | 仅 Compose 内部网络 |
 
@@ -58,7 +61,7 @@ Agent 连接后直接调用 `scopegraph_get_started` 即可获得实时健康状
 `scopegraph_all_in_one_snapshot`，可在一个 MCP 往返中并发取得 Scope、资产、网站、网络、发现项、
 扫描历史和最新资产漏斗。
 
-Docker MCP 地址为 <http://127.0.0.1:8001/mcp>。完整客户端配置、安全边界和工具清单见
+Docker MCP 地址为 <http://127.0.0.1:18001/mcp>。完整客户端配置、安全边界和工具清单见
 [`docs/MCP.md`](./docs/MCP.md)。
 
 ## Docker Compose 启动
@@ -72,6 +75,10 @@ Desktop、构建发生变化的镜像、拉起服务、同时确认 API 健康�
 变化时可用 `--no-build` 快速启动；它会保留匹配且健康的容器，避免中断正在执行的扫描；`--open`
 可显式要求打开页面。
 
+启动前可使用 `Start-ScopeGraph.cmd --check` 做不启动服务的 Docker/Compose/引擎预检；如果当前只
+允许离线检查，使用 `Start-ScopeGraph.cmd --offline-check`，它只验证本地 CLI 和 Compose 配置，
+不会连接 Docker、浏览器或任何扫描目标网络。
+
 ```powershell
 Copy-Item .env.example .env
 docker compose up -d --build
@@ -79,7 +86,7 @@ docker compose ps
 ```
 
 首次启动会先等待 PostgreSQL，通过 Alembic 迁移后再启动 API、Worker 和 Web。健康后访问
-<http://127.0.0.1:8080>。
+<http://127.0.0.1:18080>。
 
 API/Worker 镜像会从官方发布包构建并校验固定版本的 Subfinder、dnsx、httpx、Naabu、Nuclei、
 Katana 与 AlterX，同时内置 PureDNS、MassDNS、Nmap、Chromium 和中文字体。无需再在 Windows
@@ -117,15 +124,18 @@ docker compose exec api scopegraph diff <project-id> --from <scan-a> --to <scan-
 docker compose exec api scopegraph export create <project-id> --format xlsx --scope confirmed-and-high --json
 ```
 
-Web 项目入口为 <http://127.0.0.1:8080/projects>。项目创建时必须显式确认已获得测试授权。
+Web 项目入口为 <http://127.0.0.1:18080/projects>。项目创建时必须显式确认已获得测试授权。
 项目内提供 Scope、扫描、网络、网站、企业发现和安全/导出视图；系统页
-<http://127.0.0.1:8080/system> 展示 10 个适配器的安装/兼容状态、存储用量、公开监听保护和
+<http://127.0.0.1:18080/system> 展示 10 个适配器的安装/兼容状态、存储用量、公开监听保护和
 默认代理设置。截图失败不会阻止网站数据展示。
 
-安装、升级、备份/恢复和兼容性说明分别见 `docs/INSTALLATION.md`、`docs/UPGRADE.md`、
-`docs/BACKUP_RESTORE.md` 与 `docs/COMPATIBILITY.md`。非回环发布属于显式高级操作，必须同时
+安装、升级、备份/恢复、兼容性、当前公开发布就绪状态和发布流程分别见 `docs/INSTALLATION.md`、
+`docs/UPGRADE.md`、`docs/BACKUP_RESTORE.md`、`docs/COMPATIBILITY.md`、
+`docs/PUBLIC_RELEASE_READINESS.md` 与 `docs/RELEASE_PROCESS.md`。非回环发布属于显式高级操作，必须同时
 配置 `SCOPEGRAPH_PUBLIC_BIND=true` 和强随机 `SCOPEGRAPH_API_KEY`，客户端通过
 `X-ScopeGraph-API-Key` 发送；代理 URL 禁止携带凭据。
+Web 代理默认只接受 `localhost`、`127.0.0.1` 和 `::1` 的 Host；非回环部署还应设置
+`SCOPEGRAPH_WEB_ALLOWED_HOSTS`（逗号分隔的主机名），代理会拒绝跨站写请求并限制请求体大小（默认 10 MiB）。
 
 停止服务：
 
@@ -142,7 +152,7 @@ Compose 卷中的数据，日常停止不要使用。
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install --constraint constraints/python312.txt -e ".[dev]"
 npm --prefix apps/web ci
 ```
 
@@ -165,9 +175,10 @@ npm --prefix apps/web run dev
 ## 验证命令
 
 ```powershell
-.\.venv\Scripts\python.exe -m ruff check apps scopegraph tests
+.\.venv\Scripts\python.exe -m ruff check apps scopegraph tests scripts
 .\.venv\Scripts\python.exe -m mypy apps scopegraph
 .\.venv\Scripts\python.exe -m pytest --cov=apps --cov=scopegraph
+.\.venv\Scripts\python.exe scripts\validate_public_release.py --allow-dirty
 npm --prefix apps/web run lint
 npm --prefix apps/web run typecheck
 npm --prefix apps/web run test
@@ -177,8 +188,10 @@ python tests/integration/phase2_smoke.py
 python tests/integration/phase3_smoke.py
 python tests/integration/phase4_smoke.py
 python tests/integration/phase5_smoke.py
+python tests/integration/phase5_async_smoke.py
 python tests/integration/phase6_smoke.py
 python tests/integration/phase7_smoke.py
+docker compose exec -T mcp python -m apps.mcp_server.smoke
 ```
 
 CI 不访问真实互联网目标，也不调用任何安全工具。Compose 集成测试只使用仓库内固定 fixture。
@@ -201,3 +214,5 @@ data/            本地结构化文件、日志和后续扫描证据
 
 阶段交付记录位于 `docs/PHASE_0_DELIVERY.md` 至 `docs/PHASE_7_RELEASE.md`；v1.0 总体验收和
 已知边界见 [`RELEASE_NOTES_v1.0.0.md`](./RELEASE_NOTES_v1.0.0.md)。
+
+面向校园演示的离线工作坊流程见 [`docs/CAMPUS_DEMO.md`](./docs/CAMPUS_DEMO.md)。

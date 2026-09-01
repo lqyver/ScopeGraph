@@ -13,9 +13,12 @@ import {
   ScopeCheck,
   ScopeRule,
 } from "./api";
+import type { EvidenceMode } from "./evidence-mode";
+import { useEvidenceMode } from "./use-evidence-mode";
 
 interface ScopeManagerProps {
   projectId: string;
+  initialMode?: EvidenceMode;
 }
 
 const typeLabels: Record<string, string> = {
@@ -34,7 +37,7 @@ const typeHelp: Record<string, string> = {
   URL: "示例：https://www.example.com/path。",
 };
 
-export function ScopeManager({ projectId }: ScopeManagerProps) {
+export function ScopeManager({ projectId, initialMode = "host" }: ScopeManagerProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [rules, setRules] = useState<ScopeRule[]>([]);
   const [assets, setAssets] = useState<AssetPage | null>(null);
@@ -51,7 +54,7 @@ export function ScopeManager({ projectId }: ScopeManagerProps) {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<AssetImportResult | null>(null);
   const [assetPage, setAssetPage] = useState(1);
-  const [assetMode, setAssetMode] = useState<"host" | "fixture">("host");
+  const [assetMode, setAssetMode] = useEvidenceMode(initialMode);
   const [assetType, setAssetType] = useState("");
   const [assetScope, setAssetScope] = useState("");
   const [refreshing, setRefreshing] = useState(false);

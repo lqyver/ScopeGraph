@@ -1,5 +1,8 @@
 # ScopeGraph v1.0 最终验收映射
 
+> 本文记录实现阶段当时的验收快照，测试数量和运行环境属于历史证据。当前 Community Edition
+> 发布候选的实时门槛与待验证项以 `PUBLIC_RELEASE_READINESS.md` 为准。
+
 本表逐项对应开发书第 20 节。证据来自单元测试、固定 fixture E2E、Docker production build、
 数据库迁移、容量基准和 Worker 重启测试，不使用真实互联网目标。
 

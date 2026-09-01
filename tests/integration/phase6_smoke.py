@@ -2,17 +2,20 @@
 
 import http.client
 import json
+import os
 import time
 from io import BytesIO
 from typing import Any
 from uuid import uuid4
 from zipfile import ZipFile
 
+API_PORT = int(os.getenv("SCOPEGRAPH_API_HOST_PORT", "18000"))
+
 
 def request_raw(
     method: str, path: str, payload: dict[str, Any] | None = None
 ) -> tuple[int, str, bytes]:
-    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=20)
+    connection = http.client.HTTPConnection("127.0.0.1", API_PORT, timeout=20)
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"content-type": "application/json"} if body is not None else {}
     connection.request(method, path, body=body, headers=headers)
@@ -139,7 +142,11 @@ def main() -> None:
         ]
         assert nuclei_only_jobs[0]["input_ref"]["urls"]
 
-        status, findings = request("GET", f"/api/v1/projects/{project_id}/findings")
+        status, host_findings = request("GET", f"/api/v1/projects/{project_id}/findings")
+        assert status == 200 and host_findings == [], host_findings
+        status, findings = request(
+            "GET", f"/api/v1/projects/{project_id}/findings?execution_mode=fixture"
+        )
         assert status == 200 and len(findings) == 1, findings
         finding = findings[0]
         assert finding["status"] == "UNVERIFIED"
@@ -179,7 +186,11 @@ def main() -> None:
             status, artifact = request(
                 "POST",
                 f"/api/v1/projects/{project_id}/exports",
-                {"export_format": export_format, "export_scope": "all-candidates"},
+                {
+                    "export_format": export_format,
+                    "export_scope": "all-candidates",
+                    "execution_mode": "fixture",
+                },
             )
             assert status == 201 and artifact["status"] == "SUCCESS", artifact
             assert set(artifact["row_counts"]) == expected_sheets

@@ -50,6 +50,7 @@ include = ["apps*", "scopegraph*"]
 addopts = "-q --strict-markers --disable-warnings --basetemp=.pytest-tmp"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 target-version = "py312"

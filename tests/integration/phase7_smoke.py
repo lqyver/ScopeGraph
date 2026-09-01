@@ -2,9 +2,13 @@
 
 import http.client
 import json
+import os
 import time
 from typing import Any
 from uuid import uuid4
+
+API_PORT = int(os.getenv("SCOPEGRAPH_API_HOST_PORT", "18000"))
+WEB_PORT = int(os.getenv("SCOPEGRAPH_WEB_HOST_PORT", "18080"))
 
 
 def request(
@@ -12,7 +16,7 @@ def request(
     path: str,
     payload: dict[str, Any] | None = None,
     *,
-    port: int = 8000,
+    port: int = API_PORT,
 ) -> tuple[int, Any]:
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=25)
     body = json.dumps(payload).encode() if payload is not None else None
@@ -172,7 +176,7 @@ def main() -> None:
     assert status == 409, denied_cleanup
 
     for path in ("/", "/system", f"/projects/{project_id}/security"):
-        ui_status, html = request("GET", path, port=8080)
+        ui_status, html = request("GET", path, port=WEB_PORT)
         assert ui_status == 200, (path, ui_status)
         assert "ScopeGraph" in html, path
 

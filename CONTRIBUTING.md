@@ -18,6 +18,8 @@ Thank you for improving a responsible, local-first asset-discovery workflow.
 2. Add or update fixture-based tests for behaviour changes.
 3. Run the checks described in the README: Python linting, type checking,
    tests, and the web lint/typecheck/test/build commands when relevant.
+   Also run `python scripts/validate_public_release.py --allow-dirty` so new
+   files are checked against the Community Edition release boundary.
 4. Explain user-visible behaviour, safety implications, and documentation
    changes in the pull request.
 

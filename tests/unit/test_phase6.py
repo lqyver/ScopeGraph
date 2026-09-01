@@ -5,8 +5,9 @@ from zipfile import ZipFile
 import pytest
 
 from scopegraph.application.services.exports import _safe_csv
+from scopegraph.application.services.scan_execution import _should_retire_nuclei_findings
 from scopegraph.application.services.scans import _stage_timeout_seconds
-from scopegraph.domain.enums import ScanProfile
+from scopegraph.domain.enums import ScanProfile, ScanStatus
 from scopegraph.exporting.xlsx import write_xlsx
 from scopegraph.scanning.profiles import load_profile
 from scopegraph.schemas.scans import ScanRunCreate
@@ -23,6 +24,18 @@ def test_nuclei_requires_second_confirmation() -> None:
                 "nuclei_enabled": True,
             }
         )
+
+
+def test_nuclei_partial_output_does_not_retire_previous_findings() -> None:
+    assert not _should_retire_nuclei_findings("nuclei", ScanStatus.TIMEOUT, True)
+
+
+def test_nuclei_success_retire_previous_findings() -> None:
+    assert _should_retire_nuclei_findings("nuclei", ScanStatus.SUCCESS, False)
+
+
+def test_nuclei_asset_budget_keeps_previous_findings() -> None:
+    assert not _should_retire_nuclei_findings("nuclei", ScanStatus.SUCCESS, False, 1)
 
 
 def test_nuclei_command_is_allowlisted_and_non_interactive(monkeypatch: pytest.MonkeyPatch) -> None:
