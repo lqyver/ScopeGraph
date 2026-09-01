@@ -20,6 +20,7 @@ export async function GET() {
       {
         status: "unhealthy",
         version: "1.0.0",
+        edition: process.env.SCOPEGRAPH_EDITION === "internal" ? "internal" : "community",
         environment: "unknown",
         checked_at: new Date().toISOString(),
         checks: {

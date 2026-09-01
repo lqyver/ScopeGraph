@@ -2,13 +2,16 @@
 
 import http.client
 import json
+import os
 import time
 from typing import Any
 from uuid import uuid4
 
+API_PORT = int(os.getenv("SCOPEGRAPH_API_HOST_PORT", "18000"))
+
 
 def request(method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
-    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=10)
+    connection = http.client.HTTPConnection("127.0.0.1", API_PORT, timeout=10)
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"content-type": "application/json"} if body is not None else {}
     connection.request(method, path, body=body, headers=headers)
@@ -19,7 +22,7 @@ def request(method: str, path: str, payload: dict[str, Any] | None = None) -> tu
 
 
 def request_bytes(path: str) -> tuple[int, str, bytes]:
-    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=10)
+    connection = http.client.HTTPConnection("127.0.0.1", API_PORT, timeout=10)
     connection.request("GET", path)
     response = connection.getresponse()
     body = response.read()
@@ -105,7 +108,11 @@ def main() -> None:
         assert status == 200, jobs
         assert all(job["status"] == "SUCCESS" for job in jobs), jobs
 
-        status, websites = request("GET", f"/api/v1/projects/{project_id}/websites")
+        status, host_websites = request("GET", f"/api/v1/projects/{project_id}/websites")
+        assert status == 200 and host_websites["total"] == 0, host_websites
+        status, websites = request(
+            "GET", f"/api/v1/projects/{project_id}/websites?execution_mode=fixture"
+        )
         assert status == 200, websites
         assert websites["total"] == 2, websites
         by_url = {item["url"]: item for item in websites["items"]}
@@ -118,13 +125,15 @@ def main() -> None:
         assert www["screenshot_path"].endswith("/screenshots/www.example.com.svg")
         assert www["cdn_waf"] == ["vercel"]
         image_status, image_type, image_body = request_bytes(
-            f"/api/v1/websites/{www['id']}/screenshot"
+            f"/api/v1/websites/{www['id']}/screenshot?execution_mode=fixture"
         )
         assert image_status == 200
         assert image_type.startswith("image/svg+xml")
         assert image_body.startswith(b"<svg")
 
-        status, detail = request("GET", f"/api/v1/websites/{www['id']}")
+        status, detail = request(
+            "GET", f"/api/v1/websites/{www['id']}?execution_mode=fixture"
+        )
         assert status == 200, detail
         assert detail["snapshot"]["response_time_ms"] == 350.0
         assert "set-cookie" not in detail["snapshot"]["response_headers"]
@@ -137,7 +146,9 @@ def main() -> None:
         assert detail["certificates"][0]["fingerprint_sha256"] == "d" * 64
         assert {item["association_status"] for item in detail["filing_links"]} == {"PAGE_DIRECT"}
 
-        status, filings = request("GET", f"/api/v1/projects/{project_id}/icp-records")
+        status, filings = request(
+            "GET", f"/api/v1/projects/{project_id}/icp-records?execution_mode=fixture"
+        )
         assert status == 200, filings
         assert {item["record_kind"] for item in filings} == {"ICP", "PUBLIC_SECURITY"}
         for record in filings:
@@ -149,7 +160,8 @@ def main() -> None:
 
         status, endpoints = request(
             "GET",
-            f"/api/v1/projects/{project_id}/endpoints?scan_run_id={first_run['id']}",
+            f"/api/v1/projects/{project_id}/endpoints?scan_run_id={first_run['id']}"
+            "&execution_mode=fixture",
         )
         assert status == 200, endpoints
         assert len(endpoints) == 5
@@ -163,7 +175,9 @@ def main() -> None:
 
         # The operator view must keep each domain's ports and technologies together.
         status, surface = request(
-            "GET", f"/api/v1/projects/{project_id}/attack-surface?page=1&page_size=100"
+            "GET",
+            f"/api/v1/projects/{project_id}/attack-surface?page=1&page_size=100"
+            "&execution_mode=fixture",
         )
         assert status == 200, surface
         by_domain = {item["domain"]: item for item in surface["items"]}
@@ -187,9 +201,13 @@ def main() -> None:
         # A second run must create history, not duplicate project-level websites or filings.
         second_run = create_fixture_run(project_id)
         assert second_run["status"] == "SUCCESS", second_run
-        status, websites_after = request("GET", f"/api/v1/projects/{project_id}/websites")
+        status, websites_after = request(
+            "GET", f"/api/v1/projects/{project_id}/websites?execution_mode=fixture"
+        )
         assert status == 200 and websites_after["total"] == 2
-        status, filings_after = request("GET", f"/api/v1/projects/{project_id}/icp-records")
+        status, filings_after = request(
+            "GET", f"/api/v1/projects/{project_id}/icp-records?execution_mode=fixture"
+        )
         assert status == 200 and len(filings_after) == 2
 
         print(

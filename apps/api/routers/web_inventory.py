@@ -30,7 +30,7 @@ async def project_websites(
     session: Session,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    execution_mode: Literal["host", "fixture"] | None = None,
+    execution_mode: Literal["host", "fixture"] = "host",
 ) -> WebsitePage:
     return await list_websites(
         session,
@@ -42,13 +42,23 @@ async def project_websites(
 
 
 @router.get("/websites/{website_id}", response_model=WebsiteDetailRead)
-async def website_detail(website_id: UUID, session: Session) -> WebsiteDetailRead:
-    return await get_website_detail(session, website_id)
+async def website_detail(
+    website_id: UUID,
+    session: Session,
+    execution_mode: Literal["host", "fixture"] = "host",
+) -> WebsiteDetailRead:
+    return await get_website_detail(session, website_id, execution_mode=execution_mode)
 
 
 @router.get("/websites/{website_id}/screenshot", response_class=FileResponse)
-async def website_screenshot(website_id: UUID, session: Session) -> FileResponse:
-    path, media_type = await get_website_screenshot_path(session, website_id)
+async def website_screenshot(
+    website_id: UUID,
+    session: Session,
+    execution_mode: Literal["host", "fixture"] = "host",
+) -> FileResponse:
+    path, media_type = await get_website_screenshot_path(
+        session, website_id, execution_mode=execution_mode
+    )
     return FileResponse(
         path,
         media_type=media_type,
@@ -57,8 +67,12 @@ async def website_screenshot(website_id: UUID, session: Session) -> FileResponse
 
 
 @router.get("/projects/{project_id}/icp-records", response_model=list[ICPRecordRead])
-async def project_icp_records(project_id: UUID, session: Session) -> list[ICPRecordRead]:
-    return await list_icp_records(session, project_id)
+async def project_icp_records(
+    project_id: UUID,
+    session: Session,
+    execution_mode: Literal["host", "fixture"] = "host",
+) -> list[ICPRecordRead]:
+    return await list_icp_records(session, project_id, execution_mode=execution_mode)
 
 
 @router.get("/projects/{project_id}/endpoints", response_model=list[EndpointRead])
@@ -66,7 +80,7 @@ async def project_endpoints(
     project_id: UUID,
     session: Session,
     scan_run_id: UUID | None = None,
-    execution_mode: Literal["host", "fixture"] | None = None,
+    execution_mode: Literal["host", "fixture"] = "host",
     limit: int = Query(default=200, ge=1, le=1000),
 ) -> list[EndpointRead]:
     return await list_endpoints(

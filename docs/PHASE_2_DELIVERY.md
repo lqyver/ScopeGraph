@@ -35,7 +35,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Web 任务中心：`http://127.0.0.1:8080/projects/<project-id>/scans`。
+Web 任务中心：`http://127.0.0.1:18080/projects/<project-id>/scans`。
 
 ## 测试命令
 

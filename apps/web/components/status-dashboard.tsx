@@ -43,7 +43,9 @@ export function StatusDashboard() {
     <section className="runtime" aria-labelledby="runtime-title" aria-live="polite">
       <div className="section-heading">
         <div>
-          <p className="section-index">01 / RUNTIME STATUS</p>
+          <p className="section-index">
+            01 / RUNTIME STATUS · {report?.edition?.toUpperCase() ?? "IDENTIFYING"}
+          </p>
           <h2 id="runtime-title">本地运行状态</h2>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading}>

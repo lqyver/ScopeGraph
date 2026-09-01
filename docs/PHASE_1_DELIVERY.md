@@ -33,8 +33,8 @@ docker compose up -d --build
 docker compose ps
 ```
 
-默认 Web 入口为 <http://127.0.0.1:8080/projects>，API 文档为
-<http://127.0.0.1:8000/docs>。
+默认 Web 入口为 <http://127.0.0.1:18080/projects>，API 文档为
+<http://127.0.0.1:18000/docs>。
 
 ## 测试命令
 

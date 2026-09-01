@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "ScopeGraph"
+    edition: Literal["internal", "community"] = "community"
     environment: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     database_url: str = "postgresql+asyncpg://scopegraph:scopegraph@127.0.0.1:5432/scopegraph"
@@ -28,6 +29,17 @@ class Settings(BaseSettings):
     mcp_port: int = Field(default=8001, ge=1, le=65535)
     mcp_transport: Literal["stdio", "streamable-http"] = "stdio"
     mcp_allow_scan_start: bool = False
+
+    @field_validator("api_key", mode="before")
+    @classmethod
+    def normalize_api_key(cls, value: object) -> object:
+        if value is None:
+            return None
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        if not isinstance(raw, str):
+            return value
+        normalized = raw.strip()
+        return SecretStr(normalized) if normalized else None
 
 
 @lru_cache

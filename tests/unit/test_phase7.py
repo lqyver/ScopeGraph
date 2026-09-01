@@ -1,7 +1,7 @@
 from pathlib import Path
 
+import httpx
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 import apps.api.main as api_main
@@ -35,28 +35,49 @@ def test_httpx_proxy_is_a_closed_argv_field(monkeypatch: pytest.MonkeyPatch) -> 
     assert all(";" not in item for item in command)
 
 
-def test_public_bind_requires_api_key_and_middleware_enforces_it(
+@pytest.mark.asyncio
+async def test_public_bind_requires_api_key_and_middleware_enforces_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        api_main,
-        "get_settings",
-        lambda: Settings(public_bind=True, api_key=None),
-    )
-    with pytest.raises(RuntimeError, match="API_KEY"):
-        api_main.create_app()
-
-    monkeypatch.setattr(
-        api_main,
-        "get_settings",
-        lambda: Settings(public_bind=True, api_key=SecretStr("test-secret")),
-    )
-    with TestClient(api_main.create_app()) as client:
-        assert client.get("/not-found").status_code == 401
-        assert (
-            client.get("/not-found", headers={"x-scopegraph-api-key": "test-secret"}).status_code
-            == 404
+    for unsafe_key in (None, SecretStr(""), SecretStr("   "), SecretStr("too-short")):
+        monkeypatch.setattr(
+            api_main,
+            "get_settings",
+            lambda key=unsafe_key: Settings(public_bind=True, api_key=key),
         )
+        with pytest.raises(RuntimeError, match="32 bytes"):
+            api_main.create_app()
+
+    strong_key = "test-secret-that-is-at-least-32-bytes"
+    monkeypatch.setattr(
+        api_main,
+        "get_settings",
+        lambda: Settings(public_bind=True, api_key=SecretStr(strong_key)),
+    )
+    application = api_main.create_app()
+    transport = httpx.ASGITransport(app=application)
+    async with application.router.lifespan_context(application):
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            assert (await client.get("/not-found")).status_code == 401
+            assert (
+                await client.get(
+                    "/not-found", headers={"x-scopegraph-api-key": ""}
+                )
+            ).status_code == 401
+            assert (
+                await client.get(
+                    "/not-found", headers={"x-scopegraph-api-key": "wrong-key"}
+                )
+            ).status_code == 401
+            assert (
+                (
+                    await client.get(
+                        "/not-found",
+                        headers={"x-scopegraph-api-key": strong_key},
+                    )
+                ).status_code
+                == 404
+            )
 
 
 def test_tool_updates_are_never_silent() -> None:
@@ -70,10 +91,11 @@ def test_tool_updates_are_never_silent() -> None:
 def test_proxy_settings_are_atomic_and_credential_free(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = Settings(data_root=tmp_path)
+    settings = Settings(edition="internal", data_root=tmp_path)
     monkeypatch.setattr(system_service, "get_settings", lambda: settings)
     result = update_system_settings(SystemSettingsPatch(proxy_url="http://127.0.0.1:8080"))
     assert result.proxy_url == "http://127.0.0.1:8080"
+    assert result.edition == "internal"
     assert result.proxy_credentials_supported is False
     assert not (tmp_path / "system" / "settings.tmp").exists()
 

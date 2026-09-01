@@ -546,6 +546,8 @@ footer {
 .loading-panel,
 .error-panel,
 .empty-state {
+  width: 100%;
+  min-width: 0;
   padding: clamp(36px, 7vw, 80px);
   border: 1px solid var(--line);
   background: rgba(16, 28, 32, 0.72);
@@ -558,10 +560,11 @@ footer {
 
 .error-panel p,
 .empty-state p {
-  max-width: 660px;
+  max-width: min(660px, 100%);
   margin: 14px 0 24px;
   color: var(--muted);
   line-height: 1.7;
+  overflow-wrap: anywhere;
 }
 
 .error-panel button,
@@ -581,8 +584,9 @@ footer {
 }
 
 .empty-state h2 {
-  max-width: 760px;
+  max-width: min(760px, 100%);
   margin-top: 20px;
+  overflow-wrap: anywhere;
 }
 
 .project-grid {
@@ -2906,6 +2910,17 @@ summary:focus-visible {
 }
 
 @media (max-width: 600px) {
+  .website-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .website-toolbar > label,
+  .website-toolbar > .view-switch,
+  .website-toolbar > button {
+    min-width: 0;
+    width: 100%;
+  }
+
   .asset-panel .website-toolbar {
     grid-template-columns: 1fr;
   }
@@ -2956,6 +2971,25 @@ summary:focus-visible {
 }
 
 @media (max-width: 600px) {
+  .empty-state {
+    padding: 28px;
+  }
+
+  .brand {
+    min-width: 0;
+  }
+
+  .main-nav {
+    flex: 0 0 auto;
+    padding: 4px;
+  }
+
+  .main-nav .nav-primary {
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
   .main-nav a:not(.nav-primary) {
     display: none;
   }

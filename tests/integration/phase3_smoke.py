@@ -2,13 +2,16 @@
 
 import http.client
 import json
+import os
 import time
 from typing import Any
 from uuid import uuid4
 
+API_PORT = int(os.getenv("SCOPEGRAPH_API_HOST_PORT", "18000"))
+
 
 def request(method: str, path: str, payload: dict[str, Any] | None = None) -> tuple[int, Any]:
-    connection = http.client.HTTPConnection("127.0.0.1", 8000, timeout=10)
+    connection = http.client.HTTPConnection("127.0.0.1", API_PORT, timeout=10)
     body = json.dumps(payload).encode() if payload is not None else None
     headers = {"content-type": "application/json"} if body is not None else {}
     connection.request(method, path, body=body, headers=headers)
@@ -93,7 +96,11 @@ def main() -> None:
     assert naabu["result_summary"]["candidate_socket_checks"] == 4
     assert nmap["input_ref"]["targets"] == [{"ip": "93.184.216.34", "ports": [80, 443]}]
 
-    status, ips = request("GET", f"/api/v1/projects/{project_id}/ips")
+    status, host_ips = request("GET", f"/api/v1/projects/{project_id}/ips")
+    assert status == 200 and host_ips == [], host_ips
+    status, ips = request(
+        "GET", f"/api/v1/projects/{project_id}/ips?execution_mode=fixture"
+    )
     assert status == 200, ips
     owned_candidate = next(item for item in ips if item["ip"] == "93.184.216.34")
     cdn = next(item for item in ips if item["ip"] == "93.184.216.35")
@@ -101,7 +108,9 @@ def main() -> None:
     assert cdn["classification"] == "CDN_WAF"
 
     status, ports = request(
-        "GET", f"/api/v1/projects/{project_id}/ports?scan_run_id={standard['id']}"
+        "GET",
+        f"/api/v1/projects/{project_id}/ports?scan_run_id={standard['id']}"
+        "&execution_mode=fixture",
     )
     assert status == 200, ports
     assert {(item["port"], item["service"]["name"]) for item in ports} == {

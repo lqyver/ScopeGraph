@@ -26,7 +26,7 @@ Copy-Item .env.example .env
 docker compose up -d --build
 ```
 
-默认入口为 <http://127.0.0.1:8080>，API 为 <http://127.0.0.1:8000>。
+默认入口为 <http://127.0.0.1:18080>，API 为 <http://127.0.0.1:18000>。
 
 ## 测试命令与结果
 
@@ -47,7 +47,7 @@ docker compose up -d --build
 2. 确认页面分别展示“任务执行完成度”和“攻击面覆盖置信度”；
 3. 执行 `docker compose exec api scopegraph doctor --json`；
 4. 执行 `docker compose ps`，确认五个常驻服务健康；
-5. 确认宿主机只监听 `127.0.0.1:8080` 和 `127.0.0.1:8000`。
+5. 确认宿主机只监听 `127.0.0.1:18080` 和 `127.0.0.1:18000`。
 
 ## 未完成内容
 
@@ -63,7 +63,7 @@ docker compose up -d --build
 ## 安全约束验证
 
 - 阶段 0 不产生主动探测流量；
-- Web 仅绑定 `127.0.0.1:8080`，API 仅绑定 `127.0.0.1:8000`；
+- Web 仅绑定 `127.0.0.1:18080`，API 仅绑定 `127.0.0.1:18000`；
 - Worker 只有无网络探测的 heartbeat actor；
 - Worker 健康检查只验证本地 Redis 队列连接；
 - 未提供任意 Shell 参数入口；

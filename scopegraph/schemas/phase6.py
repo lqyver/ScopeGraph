@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,6 +19,7 @@ class FindingRead(BaseModel):
     project_id: UUID
     first_scan_run_id: UUID
     last_scan_run_id: UUID
+    execution_mode: Literal["host", "fixture"]
     template_id: str
     template_name: str
     tool_version: str
@@ -31,6 +32,13 @@ class FindingRead(BaseModel):
     first_seen_at: datetime
     last_seen_at: datetime
     is_active: bool
+
+
+class FindingPage(BaseModel):
+    items: list[FindingRead]
+    page: int
+    page_size: int
+    total: int
 
 
 class FindingReviewRequest(BaseModel):
@@ -58,6 +66,7 @@ class ScanDiffRead(BaseModel):
 class ExportCreate(BaseModel):
     export_format: ExportFormat
     export_scope: ExportScope = ExportScope.CONFIRMED_AND_HIGH
+    execution_mode: Literal["host", "fixture"] = "host"
 
 
 class ExportRead(BaseModel):
@@ -66,6 +75,7 @@ class ExportRead(BaseModel):
     project_id: UUID
     export_format: ExportFormat
     export_scope: ExportScope
+    execution_mode: str
     status: ExportStatus
     media_type: str | None
     size_bytes: int | None

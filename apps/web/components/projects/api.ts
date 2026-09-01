@@ -81,6 +81,7 @@ export interface ScanRun {
   id: string;
   project_id: string;
   profile: "quick" | "standard" | "deep" | "custom";
+  execution_mode?: "fixture" | "host";
   config_snapshot: {
     root_domain?: string;
     execution_mode?: "fixture" | "host";
@@ -514,6 +515,7 @@ export interface CoverageAssessment {
 
 export interface Finding {
   id: string;
+  execution_mode: "host" | "fixture";
   template_id: string;
   template_name: string;
   tool_version: string;
@@ -534,6 +536,13 @@ export interface Finding {
   is_active: boolean;
 }
 
+export interface FindingPage {
+  items: Finding[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
 export interface ScanDiff {
   counts: { added: number; removed: number; changed: number };
   added: Array<{ category: string; identity: string }>;
@@ -545,6 +554,7 @@ export interface ExportArtifact {
   id: string;
   export_format: "xlsx" | "csv" | "json" | "html" | "markdown";
   export_scope: string;
+  execution_mode: string;
   status: "PENDING" | "SUCCESS" | "FAILED";
   media_type: string | null;
   size_bytes: number | null;
@@ -567,6 +577,7 @@ export interface ToolStatus {
 }
 
 export interface SystemSettings {
+  edition: "internal" | "community";
   proxy_url: string | null;
   proxy_credentials_supported: boolean;
   public_bind: boolean;

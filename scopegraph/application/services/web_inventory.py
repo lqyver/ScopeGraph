@@ -1,19 +1,24 @@
 import asyncio
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from scopegraph.application.errors import ScopeGraphError
 from scopegraph.application.services.projects import get_project_or_404
+from scopegraph.domain.enums import ICPAssociationStatus
 from scopegraph.domain.models import (
     Asset,
     Certificate,
     Endpoint,
+    Finding,
     ICPRecord,
+    Observation,
     ScanRun,
     Technology,
     Website,
@@ -34,6 +39,17 @@ from scopegraph.schemas.web import (
     WebSnapshotRead,
 )
 from scopegraph.tooling.network_policy import is_environment_mapping_ip
+
+
+@dataclass(slots=True)
+class _WebsiteEvidenceMaps:
+    snapshots: dict[UUID, WebSnapshot]
+    screenshots: dict[UUID, str]
+    technologies: dict[UUID, list[Technology]]
+    endpoint_counts: dict[UUID, int]
+    observations: dict[UUID, Observation]
+    direct_filing_websites: set[UUID]
+    finding_counts: dict[UUID, int]
 
 
 async def _website_rows(
@@ -60,7 +76,7 @@ async def _website_rows(
     if execution_mode is not None:
         matching_runs = select(ScanRun.id).where(
             ScanRun.project_id == project_id,
-            ScanRun.config_snapshot["execution_mode"].astext == execution_mode,
+            ScanRun.execution_mode == execution_mode,
         )
         statement = statement.where(
             Website.id.in_(
@@ -80,19 +96,14 @@ async def _related_maps(
     project_id: UUID,
     website_ids: list[UUID],
     execution_mode: str | None = None,
-) -> tuple[
-    dict[UUID, WebSnapshot],
-    dict[UUID, str],
-    dict[UUID, list[Technology]],
-    dict[UUID, int],
-]:
+) -> _WebsiteEvidenceMaps:
     if not website_ids:
-        return {}, {}, {}, {}
+        return _WebsiteEvidenceMaps({}, {}, {}, {}, {}, set(), {})
     matching_runs = None
     if execution_mode is not None:
         matching_runs = select(ScanRun.id).where(
             ScanRun.project_id == project_id,
-            ScanRun.config_snapshot["execution_mode"].astext == execution_mode,
+            ScanRun.execution_mode == execution_mode,
         )
     snapshot_statement = (
         select(WebSnapshot)
@@ -154,7 +165,75 @@ async def _related_maps(
     counts: dict[UUID, int] = {
         website_id: int(count) for website_id, count in count_rows if website_id is not None
     }
-    return latest_snapshots, latest_screenshots, by_website, counts
+    website_identities = list(
+        (
+            await session.execute(
+                select(Website.id, Website.normalized_url, Website.asset_id).where(
+                    Website.id.in_(website_ids)
+                )
+            )
+        ).all()
+    )
+    website_by_url = {url: website_id for website_id, url, _ in website_identities}
+    observation_statement = (
+        select(Observation)
+        .where(
+            Observation.project_id == project_id,
+            Observation.predicate == "SERVES_WEBSITE",
+            Observation.object_value.in_(list(website_by_url)),
+        )
+        .order_by(Observation.observed_at.desc())
+    )
+    filing_statement = select(Observation.subject_value).where(
+        Observation.project_id == project_id,
+        Observation.predicate == "HAS_ICP_RECORD",
+        Observation.subject_value.in_(list(website_by_url)),
+    )
+    if matching_runs is not None:
+        observation_statement = observation_statement.where(
+            Observation.scan_run_id.in_(matching_runs)
+        )
+        filing_statement = filing_statement.where(Observation.scan_run_id.in_(matching_runs))
+    observations: dict[UUID, Observation] = {}
+    for observation in await session.scalars(observation_statement):
+        website_id = website_by_url.get(observation.object_value or "")
+        if website_id is not None:
+            observations.setdefault(website_id, observation)
+    direct_filing_websites = {
+        website_by_url[value]
+        for value in await session.scalars(filing_statement)
+        if value in website_by_url
+    }
+    asset_to_website = {
+        asset_id: website_id for website_id, _, asset_id in website_identities
+    }
+    finding_conditions = [
+        Finding.project_id == project_id,
+        Finding.asset_id.in_(list(asset_to_website)),
+    ]
+    if execution_mode is not None:
+        finding_conditions.append(Finding.execution_mode == execution_mode)
+    finding_rows = (
+        await session.execute(
+            select(Finding.asset_id, func.count(Finding.id))
+            .where(*finding_conditions)
+            .group_by(Finding.asset_id)
+        )
+    ).all()
+    finding_counts = {
+        asset_to_website[asset_id]: int(count)
+        for asset_id, count in finding_rows
+        if asset_id in asset_to_website
+    }
+    return _WebsiteEvidenceMaps(
+        snapshots=latest_snapshots,
+        screenshots=latest_screenshots,
+        technologies=by_website,
+        endpoint_counts=counts,
+        observations=observations,
+        direct_filing_websites=direct_filing_websites,
+        finding_counts=finding_counts,
+    )
 
 
 def _technology_label(item: Technology) -> str:
@@ -165,36 +244,94 @@ def _summary(
     website: Website,
     url_asset: Asset,
     ip_asset: Asset | None,
-    snapshot: WebSnapshot | None,
-    screenshot_path: str | None,
-    technologies: list[Technology],
-    endpoint_count: int,
+    evidence: _WebsiteEvidenceMaps,
+    *,
+    mode_filtered: bool,
 ) -> WebsiteSummaryRead:
+    snapshot = evidence.snapshots.get(website.id)
+    observation = evidence.observations.get(website.id)
+    attributes = observation.attributes if observation is not None else {}
+
+    def attribute_string(name: str, fallback: str | None) -> str | None:
+        value = attributes.get(name)
+        return str(value) if value is not None and str(value).strip() else fallback
+
+    def attribute_int(name: str, fallback: int | None) -> int | None:
+        value = attributes.get(name)
+        if isinstance(value, bool):
+            return fallback
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+        return fallback
+
+    ip_value: str | None = None
+    ip_candidates = attributes.get("ip", [])
+    if isinstance(ip_candidates, str):
+        ip_candidates = [ip_candidates]
+    if isinstance(ip_candidates, list):
+        ip_value = next(
+            (
+                value
+                for value in ip_candidates
+                if isinstance(value, str) and not is_environment_mapping_ip(value)
+            ),
+            None,
+        )
+    if ip_value is None and not mode_filtered and ip_asset is not None:
+        ip_value = (
+            ip_asset.normalized_value
+            if not is_environment_mapping_ip(ip_asset.normalized_value)
+            else None
+        )
+    final_url = snapshot.final_url if snapshot is not None else website.final_url
+    status_code = attribute_int("status_code", website.status_code if not mode_filtered else None)
+    content_type = attribute_string(
+        "content_type", website.content_type if not mode_filtered else None
+    )
+    port = attribute_int("port", website.port if not mode_filtered else None)
+    if port is None and final_url:
+        parsed = urlsplit(final_url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    is_alive = (
+        status_code is not None and attributes.get("error") is None
+        if observation is not None
+        else website.is_alive and not mode_filtered
+    )
+    icp_status = website.icp_status
+    if mode_filtered:
+        if website.id in evidence.direct_filing_websites:
+            icp_status = ICPAssociationStatus.PAGE_DIRECT
+        elif content_type and "html" not in content_type.casefold():
+            icp_status = ICPAssociationStatus.NOT_APPLICABLE
+        else:
+            icp_status = ICPAssociationStatus.NOT_FOUND
+    observed_at = observation.observed_at if observation is not None else None
     return WebsiteSummaryRead(
         id=website.id,
         project_id=website.project_id,
         asset_id=website.asset_id,
         url=website.normalized_url,
-        final_url=website.final_url,
-        title=website.title,
-        status_code=website.status_code,
-        content_type=website.content_type,
-        ip=(
-            ip_asset.normalized_value
-            if ip_asset and not is_environment_mapping_ip(ip_asset.normalized_value)
-            else None
-        ),
-        port=website.port,
-        is_alive=website.is_alive,
+        final_url=final_url,
+        title=attribute_string("title", website.title if not mode_filtered else None),
+        status_code=status_code,
+        content_type=content_type,
+        ip=ip_value,
+        port=port,
+        is_alive=is_alive,
         scope_status=url_asset.scope_status,
         ownership_status=website.ownership_status,
-        icp_status=website.icp_status,
-        technologies=[_technology_label(item) for item in technologies],
+        icp_status=icp_status,
+        technologies=[
+            _technology_label(item) for item in evidence.technologies.get(website.id, [])
+        ],
         cdn_waf=snapshot.cdn_waf if snapshot else [],
-        screenshot_path=screenshot_path,
-        endpoint_count=endpoint_count,
-        first_seen_at=website.first_seen_at,
-        last_seen_at=website.last_seen_at,
+        screenshot_path=evidence.screenshots.get(website.id),
+        endpoint_count=evidence.endpoint_counts.get(website.id, 0),
+        finding_count=evidence.finding_counts.get(website.id, 0),
+        first_seen_at=observed_at if mode_filtered and observed_at else website.first_seen_at,
+        last_seen_at=observed_at if mode_filtered and observed_at else website.last_seen_at,
     )
 
 
@@ -211,7 +348,7 @@ async def list_websites(
     if execution_mode is not None:
         matching_runs = select(ScanRun.id).where(
             ScanRun.project_id == project_id,
-            ScanRun.config_snapshot["execution_mode"].astext == execution_mode,
+            ScanRun.execution_mode == execution_mode,
         )
         count_statement = count_statement.where(
             Website.id.in_(
@@ -229,7 +366,7 @@ async def list_websites(
         execution_mode=execution_mode,
     )
     ids = [website.id for website, _, _ in rows]
-    snapshots, screenshots, technologies, endpoint_counts = await _related_maps(
+    evidence = await _related_maps(
         session, project_id, ids, execution_mode
     )
     return WebsitePage(
@@ -238,10 +375,8 @@ async def list_websites(
                 website,
                 url_asset,
                 ip_asset,
-                snapshots.get(website.id),
-                screenshots.get(website.id),
-                technologies.get(website.id, []),
-                endpoint_counts.get(website.id, 0),
+                evidence,
+                mode_filtered=execution_mode is not None,
             )
             for website, url_asset, ip_asset in rows
         ],
@@ -272,29 +407,53 @@ def _snapshot_read(snapshot: WebSnapshot) -> WebSnapshotRead:
     )
 
 
-async def get_website_detail(session: AsyncSession, website_id: UUID) -> WebsiteDetailRead:
+async def get_website_detail(
+    session: AsyncSession,
+    website_id: UUID,
+    *,
+    execution_mode: str = "host",
+) -> WebsiteDetailRead:
     website = await session.get(Website, website_id)
     if website is None:
         raise ScopeGraphError("WEBSITE_NOT_FOUND", "Website was not found", status_code=404)
-    rows = await _website_rows(session, website.project_id, website_id=website_id)
+    rows = await _website_rows(
+        session,
+        website.project_id,
+        website_id=website_id,
+        execution_mode=execution_mode,
+    )
     if not rows:
         raise ScopeGraphError("WEBSITE_NOT_FOUND", "Website was not found", status_code=404)
-    snapshots, screenshots, technologies, endpoint_counts = await _related_maps(
-        session, website.project_id, [website.id]
+    evidence = await _related_maps(
+        session, website.project_id, [website.id], execution_mode
     )
-    current_snapshot = snapshots.get(website.id)
+    current_snapshot = evidence.snapshots.get(website.id)
     summary = _summary(
         *rows[0],
-        current_snapshot,
-        screenshots.get(website.id),
-        technologies.get(website.id, []),
-        endpoint_counts.get(website.id, 0),
+        evidence,
+        mode_filtered=True,
+    )
+    matching_runs = select(ScanRun.id).where(
+        ScanRun.project_id == website.project_id,
+        ScanRun.execution_mode == execution_mode,
     )
     certificates = list(
         await session.scalars(
             select(Certificate)
-            .where(Certificate.website_id == website.id)
+            .where(
+                Certificate.website_id == website.id,
+                Certificate.scan_run_id.in_(matching_runs),
+            )
             .order_by(Certificate.observed_at.desc())
+        )
+    )
+    filing_condition = exists(
+        select(Observation.id).where(
+            Observation.project_id == website.project_id,
+            Observation.scan_run_id.in_(matching_runs),
+            Observation.predicate == "HAS_ICP_RECORD",
+            Observation.subject_value == website.normalized_url,
+            Observation.object_value == ICPRecord.normalized_number,
         )
     )
     filing_rows = list(
@@ -302,7 +461,7 @@ async def get_website_detail(session: AsyncSession, website_id: UUID) -> Website
             await session.execute(
                 select(WebsiteICPLink, ICPRecord)
                 .join(ICPRecord, ICPRecord.id == WebsiteICPLink.icp_record_id)
-                .where(WebsiteICPLink.website_id == website.id)
+                .where(WebsiteICPLink.website_id == website.id, filing_condition)
                 .order_by(ICPRecord.record_kind, ICPRecord.normalized_number)
             )
         ).all()
@@ -310,7 +469,10 @@ async def get_website_detail(session: AsyncSession, website_id: UUID) -> Website
     endpoint_rows = list(
         await session.scalars(
             select(Endpoint)
-            .where(Endpoint.website_id == website.id)
+            .where(
+                Endpoint.website_id == website.id,
+                Endpoint.scan_run_id.in_(matching_runs),
+            )
             .order_by(Endpoint.normalized_url, Endpoint.method)
         )
     )
@@ -325,7 +487,7 @@ async def get_website_detail(session: AsyncSession, website_id: UUID) -> Website
                 confidence=item.confidence,
                 source_tool=item.source_tool,
             )
-            for item in technologies.get(website.id, [])
+            for item in evidence.technologies.get(website.id, [])
         ],
         certificates=[
             CertificateRead(
@@ -375,7 +537,12 @@ async def get_website_detail(session: AsyncSession, website_id: UUID) -> Website
     )
 
 
-async def get_website_screenshot_path(session: AsyncSession, website_id: UUID) -> tuple[Path, str]:
+async def get_website_screenshot_path(
+    session: AsyncSession,
+    website_id: UUID,
+    *,
+    execution_mode: str = "host",
+) -> tuple[Path, str]:
     website = await session.get(Website, website_id)
     if website is None:
         raise ScopeGraphError("WEBSITE_NOT_FOUND", "Website was not found", status_code=404)
@@ -384,6 +551,12 @@ async def get_website_screenshot_path(session: AsyncSession, website_id: UUID) -
         .where(
             WebSnapshot.website_id == website.id,
             WebSnapshot.screenshot_path.is_not(None),
+            WebSnapshot.scan_run_id.in_(
+                select(ScanRun.id).where(
+                    ScanRun.project_id == website.project_id,
+                    ScanRun.execution_mode == execution_mode,
+                )
+            ),
         )
         .order_by(WebSnapshot.observed_at.desc())
         .limit(1)
@@ -414,12 +587,31 @@ async def get_website_screenshot_path(session: AsyncSession, website_id: UUID) -
     return candidate, media_type
 
 
-async def list_icp_records(session: AsyncSession, project_id: UUID) -> list[ICPRecordRead]:
+async def list_icp_records(
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    execution_mode: str = "host",
+) -> list[ICPRecordRead]:
     await get_project_or_404(session, project_id)
+    matching_runs = select(ScanRun.id).where(
+        ScanRun.project_id == project_id,
+        ScanRun.execution_mode == execution_mode,
+    )
     records = list(
         await session.scalars(
             select(ICPRecord)
-            .where(ICPRecord.project_id == project_id)
+            .where(
+                ICPRecord.project_id == project_id,
+                exists(
+                    select(Observation.id).where(
+                        Observation.project_id == project_id,
+                        Observation.scan_run_id.in_(matching_runs),
+                        Observation.predicate == "HAS_ICP_RECORD",
+                        Observation.object_value == ICPRecord.normalized_number,
+                    )
+                ),
+            )
             .order_by(ICPRecord.record_kind, ICPRecord.normalized_number)
         )
     )
@@ -428,7 +620,15 @@ async def list_icp_records(session: AsyncSession, project_id: UUID) -> list[ICPR
             await session.execute(
                 select(WebsiteICPLink, Website)
                 .join(Website, Website.id == WebsiteICPLink.website_id)
-                .where(WebsiteICPLink.project_id == project_id)
+                .where(
+                    WebsiteICPLink.project_id == project_id,
+                    WebsiteICPLink.icp_record_id.in_([record.id for record in records]),
+                    Website.id.in_(
+                        select(WebSnapshot.website_id).where(
+                            WebSnapshot.scan_run_id.in_(matching_runs)
+                        )
+                    ),
+                )
             )
         ).all()
     )
@@ -478,7 +678,7 @@ async def list_endpoints(
     if execution_mode is not None:
         matching_runs = select(ScanRun.id).where(
             ScanRun.project_id == project_id,
-            ScanRun.config_snapshot["execution_mode"].astext == execution_mode,
+            ScanRun.execution_mode == execution_mode,
         )
         statement = statement.where(Endpoint.scan_run_id.in_(matching_runs))
     statement = statement.limit(limit)

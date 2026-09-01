@@ -5,16 +5,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import { apiRequest, errorMessage, WebsiteDetail } from "./api";
+import { evidenceModeQuery, type EvidenceMode } from "./evidence-mode";
 
 interface WebsiteDetailProps {
   websiteId: string;
+  initialMode?: EvidenceMode;
 }
 
 function formatDate(value: string | null): string {
   return value ? new Date(value).toLocaleString("zh-CN") : "—";
 }
 
-export function WebsiteDetailView({ websiteId }: WebsiteDetailProps) {
+export function WebsiteDetailView({ websiteId, initialMode = "host" }: WebsiteDetailProps) {
   const [website, setWebsite] = useState<WebsiteDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,13 +24,17 @@ export function WebsiteDetailView({ websiteId }: WebsiteDetailProps) {
   const load = useCallback(async () => {
     try {
       setError(null);
-      setWebsite(await apiRequest<WebsiteDetail>(`websites/${websiteId}`));
+      setWebsite(
+        await apiRequest<WebsiteDetail>(
+          `websites/${websiteId}${evidenceModeQuery(initialMode)}`,
+        ),
+      );
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
       setLoading(false);
     }
-  }, [websiteId]);
+  }, [initialMode, websiteId]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -48,7 +54,7 @@ export function WebsiteDetailView({ websiteId }: WebsiteDetailProps) {
           <code>{website.url}</code>
         </div>
         <div className="inventory-nav">
-          <Link className="button-secondary" href={`/projects/${website.project_id}/websites`}>返回网站清单</Link>
+          <Link className="button-secondary" href={`/projects/${website.project_id}/websites${evidenceModeQuery(initialMode)}`}>返回网站清单</Link>
           <Link className="button-secondary" href={`/projects/${website.project_id}/scans`}>任务证据</Link>
         </div>
       </section>
@@ -58,7 +64,7 @@ export function WebsiteDetailView({ websiteId }: WebsiteDetailProps) {
       <section className="website-detail-layout">
         <div className="detail-capture">
           {website.screenshot_path ? (
-            <Image src={`/api/backend/websites/${website.id}/screenshot`} alt={`${website.title ?? website.url} 页面截图`} width={1280} height={720} unoptimized priority />
+            <Image src={`/api/backend/websites/${website.id}/screenshot${evidenceModeQuery(initialMode)}`} alt={`${website.title ?? website.url} 页面截图`} width={1280} height={720} unoptimized priority />
           ) : (
             <span className="capture-missing"><b>NO CAPTURE</b><small>截图任务失败，但网站元数据已保留</small></span>
           )}

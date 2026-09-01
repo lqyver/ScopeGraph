@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import html
 import io
@@ -32,12 +33,14 @@ from scopegraph.domain.models import (
     Finding,
     ICPRecord,
     IPDetail,
+    Observation,
     Port,
     Project,
     ScanRun,
     ScopeRule,
     Service,
     Website,
+    WebSnapshot,
 )
 from scopegraph.exporting import write_xlsx
 from scopegraph.infrastructure.config import get_settings
@@ -79,10 +82,41 @@ def _attribute(mapping: dict[Any, Any], key: Any, name: str, default: Any = None
     return getattr(value, name, default) if value is not None else default
 
 
-async def _datasets(session: AsyncSession, project: Project, export_scope: ExportScope) -> Dataset:
+async def _datasets(
+    session: AsyncSession,
+    project: Project,
+    export_scope: ExportScope,
+    execution_mode: str,
+) -> Dataset:
     project_id = project.id
+    matching_runs = select(ScanRun.id).where(
+        ScanRun.project_id == project_id,
+        ScanRun.execution_mode == execution_mode,
+    )
+    observations = list(
+        await session.scalars(
+            select(Observation).where(
+                Observation.project_id == project_id,
+                Observation.scan_run_id.in_(matching_runs),
+            )
+        )
+    )
+    observed_identities = {
+        (asset_type, value)
+        for observation in observations
+        for asset_type, value in (
+            (observation.subject_type, observation.subject_value),
+            (observation.object_type, observation.object_value),
+        )
+        if asset_type is not None and value is not None
+    }
     assets = list(await session.scalars(select(Asset).where(Asset.project_id == project_id)))
-    selected_assets = [item for item in assets if _allowed_asset(item, export_scope)]
+    evidence_assets = [
+        item
+        for item in assets
+        if (item.asset_type.value, item.normalized_value) in observed_identities
+    ]
+    selected_assets = [item for item in evidence_assets if _allowed_asset(item, export_scope)]
     selected_ids = {item.id for item in selected_assets}
     root_rules = list(
         await session.scalars(
@@ -101,28 +135,116 @@ async def _datasets(session: AsyncSession, project: Project, export_scope: Expor
         await session.scalars(select(IPDetail).where(IPDetail.project_id == project_id))
     )
     detail_by_asset = {item.asset_id: item for item in ip_details}
-    ports = list(await session.scalars(select(Port).where(Port.project_id == project_id)))
-    services = list(await session.scalars(select(Service).where(Service.project_id == project_id)))
+    ports = list(
+        await session.scalars(
+            select(Port).where(
+                Port.project_id == project_id,
+                Port.scan_run_id.in_(matching_runs),
+            )
+        )
+    )
+    services = list(
+        await session.scalars(
+            select(Service).where(
+                Service.project_id == project_id,
+                Service.scan_run_id.in_(matching_runs),
+            )
+        )
+    )
     service_by_port = {item.port_id: item for item in services}
     asset_by_id = {item.id: item for item in assets}
-    websites = list(await session.scalars(select(Website).where(Website.project_id == project_id)))
+    websites = list(
+        await session.scalars(
+            select(Website).where(
+                Website.project_id == project_id,
+                Website.id.in_(
+                    select(WebSnapshot.website_id).where(
+                        WebSnapshot.scan_run_id.in_(matching_runs)
+                    )
+                ),
+            )
+        )
+    )
+    snapshots = list(
+        await session.scalars(
+            select(WebSnapshot)
+            .where(
+                WebSnapshot.project_id == project_id,
+                WebSnapshot.scan_run_id.in_(matching_runs),
+            )
+            .order_by(WebSnapshot.observed_at.desc())
+        )
+    )
+    snapshot_by_website: dict[UUID, WebSnapshot] = {}
+    for snapshot in snapshots:
+        snapshot_by_website.setdefault(snapshot.website_id, snapshot)
+    web_observation_by_url: dict[str, Observation] = {}
+    for observation in sorted(observations, key=lambda item: item.observed_at, reverse=True):
+        if observation.predicate == "SERVES_WEBSITE" and observation.object_value is not None:
+            web_observation_by_url.setdefault(observation.object_value, observation)
+
+    def website_values(item: Website) -> dict[str, Any]:
+        observation = web_observation_by_url.get(item.normalized_url)
+        attributes = observation.attributes if observation is not None else {}
+        snapshot = snapshot_by_website.get(item.id)
+        status_value = attributes.get("status_code")
+        status_code = (
+            status_value
+            if isinstance(status_value, int) and not isinstance(status_value, bool)
+            else None
+        )
+        title_value = attributes.get("title")
+        content_type_value = attributes.get("content_type")
+        observed_at = observation.observed_at if observation is not None else item.last_seen_at
+        return {
+            "final_url": snapshot.final_url if snapshot is not None else item.normalized_url,
+            "title": str(title_value)[:1000] if title_value is not None else None,
+            "status_code": status_code,
+            "content_type": (
+                str(content_type_value)[:300] if content_type_value is not None else None
+            ),
+            "is_alive": status_code is not None and attributes.get("error") is None,
+            "observed_at": observed_at,
+        }
+
     if export_scope is ExportScope.LIVE_WEBSITES:
-        websites = [item for item in websites if item.is_alive]
+        websites = [item for item in websites if website_values(item)["is_alive"]]
     elif export_scope is not ExportScope.ALL_CANDIDATES:
         websites = [item for item in websites if item.asset_id in selected_ids]
     filings = list(
-        await session.scalars(select(ICPRecord).where(ICPRecord.project_id == project_id))
+        await session.scalars(
+            select(ICPRecord).where(
+                ICPRecord.project_id == project_id,
+                ICPRecord.normalized_number.in_(
+                    select(Observation.object_value).where(
+                        Observation.project_id == project_id,
+                        Observation.scan_run_id.in_(matching_runs),
+                        Observation.predicate == "HAS_ICP_RECORD",
+                    )
+                ),
+            )
+        )
     )
     candidates = list(
         await session.scalars(
             select(CandidateRootDomain).where(CandidateRootDomain.project_id == project_id)
         )
     )
-    findings = list(await session.scalars(select(Finding).where(Finding.project_id == project_id)))
+    findings = list(
+        await session.scalars(
+            select(Finding).where(
+                Finding.project_id == project_id,
+                Finding.execution_mode == execution_mode,
+            )
+        )
+    )
     scan_runs = list(
         await session.scalars(
             select(ScanRun)
-            .where(ScanRun.project_id == project_id)
+            .where(
+                ScanRun.project_id == project_id,
+                ScanRun.execution_mode == execution_mode,
+            )
             .order_by(ScanRun.created_at.desc())
         )
     )
@@ -130,7 +252,16 @@ async def _datasets(session: AsyncSession, project: Project, export_scope: Expor
     asset_headers = ["ID", "值", "Scope状态", "归属状态", "置信分", "首次发现", "最后发现"]
     datasets: Dataset = OrderedDict()
     datasets["项目总览"] = (
-        ["项目ID", "项目名称", "企业名称", "生成时间", "导出范围", "授权确认时间", "资产数"],
+        [
+            "项目ID",
+            "项目名称",
+            "企业名称",
+            "生成时间",
+            "导出范围",
+            "证据模式",
+            "授权确认时间",
+            "资产数",
+        ],
         [
             {
                 "项目ID": str(project.id),
@@ -138,6 +269,7 @@ async def _datasets(session: AsyncSession, project: Project, export_scope: Expor
                 "企业名称": project.company_name,
                 "生成时间": datetime.now(UTC),
                 "导出范围": export_scope.value,
+                "证据模式": execution_mode,
                 "授权确认时间": project.authorization_confirmed_at,
                 "资产数": len(selected_assets),
             }
@@ -200,15 +332,15 @@ async def _datasets(session: AsyncSession, project: Project, export_scope: Expor
             {
                 "ID": str(item.id),
                 "URL": item.normalized_url,
-                "最终URL": item.final_url,
-                "标题": item.title,
-                "状态码": item.status_code,
-                "内容类型": item.content_type,
-                "存活": item.is_alive,
+                "最终URL": website_values(item)["final_url"],
+                "标题": website_values(item)["title"],
+                "状态码": website_values(item)["status_code"],
+                "内容类型": website_values(item)["content_type"],
+                "存活": website_values(item)["is_alive"],
                 "归属状态": item.ownership_status.value,
                 "备案关联": item.icp_status.value,
-                "首次发现": item.first_seen_at,
-                "最后发现": item.last_seen_at,
+                "首次发现": website_values(item)["observed_at"],
+                "最后发现": website_values(item)["observed_at"],
             }
             for item in websites
         ],
@@ -391,17 +523,30 @@ def _write_text_export(path: Path, export_format: ExportFormat, datasets: Datase
     )
 
 
+def _write_export_file(path: Path, export_format: ExportFormat, datasets: Dataset) -> None:
+    """Serialize an export outside the async event loop."""
+
+    if export_format is ExportFormat.XLSX:
+        write_xlsx(path, datasets)
+    elif export_format is ExportFormat.CSV:
+        _write_csv_zip(path, datasets)
+    else:
+        _write_text_export(path, export_format, datasets)
+
+
 async def create_export(
     session: AsyncSession,
     project_id: UUID,
     export_format: ExportFormat,
     export_scope: ExportScope,
+    execution_mode: str = "host",
 ) -> ExportArtifact:
     project = await get_project_or_404(session, project_id)
     artifact = ExportArtifact(
         project_id=project_id,
         export_format=export_format,
         export_scope=export_scope,
+        execution_mode=execution_mode,
         status=ExportStatus.PENDING,
         row_counts={},
         created_by="local-admin",
@@ -421,13 +566,8 @@ async def create_export(
         ExportFormat.MARKDOWN: "text/markdown; charset=utf-8",
     }
     try:
-        datasets = await _datasets(session, project, export_scope)
-        if export_format is ExportFormat.XLSX:
-            write_xlsx(path, datasets)
-        elif export_format is ExportFormat.CSV:
-            _write_csv_zip(path, datasets)
-        else:
-            _write_text_export(path, export_format, datasets)
+        datasets = await _datasets(session, project, export_scope, execution_mode)
+        await asyncio.to_thread(_write_export_file, path, export_format, datasets)
         stored = store.describe(path)
         artifact.status = ExportStatus.SUCCESS
         artifact.path = stored.relative_path
@@ -448,6 +588,7 @@ async def create_export(
             details={
                 "format": export_format.value,
                 "scope": export_scope.value,
+                "execution_mode": execution_mode,
                 "status": artifact.status.value,
             },
         )

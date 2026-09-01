@@ -335,7 +335,13 @@ class ReviewAction(Base):
 class Finding(TimestampActorMixin, Base):
     __tablename__ = "findings"
     __table_args__ = (
-        UniqueConstraint("project_id", "template_id", "target", name="uq_finding_identity"),
+        UniqueConstraint(
+            "project_id",
+            "execution_mode",
+            "template_id",
+            "target",
+            name="uq_finding_identity_mode",
+        ),
         Index("ix_findings_project_status", "project_id", "status"),
     )
 
@@ -352,6 +358,7 @@ class Finding(TimestampActorMixin, Base):
     asset_id: Mapped[UUID] = mapped_column(
         ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    execution_mode: Mapped[str] = mapped_column(String(20), nullable=False)
     template_id: Mapped[str] = mapped_column(String(300), nullable=False)
     template_name: Mapped[str] = mapped_column(String(500), nullable=False)
     tool_version: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -384,6 +391,7 @@ class ExportArtifact(TimestampActorMixin, Base):
     export_scope: Mapped[ExportScope] = mapped_column(
         Enum(ExportScope, native_enum=False, length=30), nullable=False
     )
+    execution_mode: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[ExportStatus] = mapped_column(
         Enum(ExportStatus, native_enum=False, length=20), nullable=False
     )
@@ -404,6 +412,12 @@ class ScanRun(TimestampActorMixin, Base):
             name="ck_scan_run_coverage_score",
         ),
         Index("ix_scan_runs_project_status", "project_id", "status"),
+        Index(
+            "ix_scan_runs_project_execution_mode_created_at",
+            "project_id",
+            "execution_mode",
+            "created_at",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -413,6 +427,7 @@ class ScanRun(TimestampActorMixin, Base):
     profile: Mapped[ScanProfile] = mapped_column(
         Enum(ScanProfile, native_enum=False, length=20), nullable=False
     )
+    execution_mode: Mapped[str] = mapped_column(String(20), default="host", nullable=False)
     config_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     status: Mapped[ScanStatus] = mapped_column(
         Enum(ScanStatus, native_enum=False, length=30),

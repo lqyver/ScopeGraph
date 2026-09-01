@@ -1,9 +1,9 @@
-name: scopegraph
+name: ${SCOPEGRAPH_COMPOSE_PROJECT:-scopegraph-community}
 
 x-python-service: &python-service
   # API, worker, MCP, migration, and data-init execute the same pinned image.
   # Sharing one tag avoids Compose creating duplicate tool images.
-  image: ${SCOPEGRAPH_API_IMAGE:-scopegraph-api}
+  image: ${SCOPEGRAPH_API_IMAGE:-scopegraph-community-api}
   # This tag is built locally by the api service. Do not emit a misleading
   # registry pull failure for the sibling services that reuse that local image.
   pull_policy: never
@@ -11,6 +11,8 @@ x-python-service: &python-service
     - path: .env
       required: false
   environment: &python-environment
+    SCOPEGRAPH_EDITION: "community"
+    SCOPEGRAPH_API_URL: http://127.0.0.1:8000
     SCOPEGRAPH_DATABASE_URL: postgresql+asyncpg://scopegraph:scopegraph@db:5432/scopegraph
     SCOPEGRAPH_REDIS_URL: redis://redis:6379/0
     SCOPEGRAPH_DATA_ROOT: /data
@@ -69,6 +71,8 @@ services:
       # ScopeGraph itself has explicit, auditable proxy handling and the proxy can
       # otherwise make package installation fail under parallel Docker builds.
       args:
+        DEBIAN_MIRROR: ${SCOPEGRAPH_DEBIAN_MIRROR:-http://deb.debian.org/debian}
+        DEBIAN_SECURITY_MIRROR: ${SCOPEGRAPH_DEBIAN_SECURITY_MIRROR:-http://security.debian.org/debian-security}
         HTTP_PROXY: ""
         HTTPS_PROXY: ""
         NO_PROXY: ""
@@ -77,7 +81,7 @@ services:
         no_proxy: ""
     command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${SCOPEGRAPH_API_HOST_PORT:-18000}:8000"
     healthcheck:
       test:
         [
@@ -137,7 +141,7 @@ services:
       SCOPEGRAPH_API_KEY: ${SCOPEGRAPH_API_KEY:-}
       SCOPEGRAPH_MCP_ALLOW_SCAN_START: ${SCOPEGRAPH_MCP_ALLOW_SCAN_START:-false}
     ports:
-      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:${SCOPEGRAPH_MCP_HOST_PORT:-18001}:8001"
     healthcheck:
       test:
         [
@@ -167,10 +171,13 @@ services:
         no_proxy: ""
     environment:
       API_INTERNAL_URL: http://api:8000
+      SCOPEGRAPH_EDITION: "community"
       SCOPEGRAPH_API_KEY: ${SCOPEGRAPH_API_KEY:-}
+      SCOPEGRAPH_WEB_ALLOWED_HOSTS: ${SCOPEGRAPH_WEB_ALLOWED_HOSTS:-}
+      SCOPEGRAPH_PROXY_MAX_BODY_BYTES: ${SCOPEGRAPH_PROXY_MAX_BODY_BYTES:-}
       NEXT_TELEMETRY_DISABLED: "1"
     ports:
-      - "127.0.0.1:8080:3000"
+      - "127.0.0.1:${SCOPEGRAPH_WEB_HOST_PORT:-18080}:3000"
     healthcheck:
       test:
         [

@@ -2,15 +2,16 @@ import ipaddress
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import Select
 from sqlalchemy.sql.elements import ColumnElement
 
 from scopegraph.application.errors import ScopeGraphError
 from scopegraph.application.services.projects import get_project_or_404
 from scopegraph.domain.enums import AssetType, IPClassification, ScopeStatus
-from scopegraph.domain.models import Asset, AuditLog, IPDetail, Port, Service
+from scopegraph.domain.models import Asset, AuditLog, IPDetail, Observation, Port, ScanRun, Service
 from scopegraph.scanning.port_policy import classify_ip
 from scopegraph.schemas.network import (
     IPClassificationUpdate,
@@ -28,6 +29,29 @@ def _visible_ip_condition() -> ColumnElement[bool]:
     return and_(
         Asset.normalized_value.not_like("198.18.%"),
         Asset.normalized_value.not_like("198.19.%"),
+    )
+
+
+def _matching_run_ids(project_id: UUID, execution_mode: str) -> Select[tuple[UUID]]:
+    return select(ScanRun.id).where(
+        ScanRun.project_id == project_id,
+        ScanRun.execution_mode == execution_mode,
+    )
+
+
+def _observed_ip_condition(project_id: UUID, execution_mode: str) -> ColumnElement[bool]:
+    matching_runs = _matching_run_ids(project_id, execution_mode)
+    return exists(
+        select(Observation.id).where(
+            Observation.project_id == project_id,
+            Observation.scan_run_id.in_(matching_runs),
+            or_(
+                (Observation.subject_type == AssetType.IP.value)
+                & (Observation.subject_value == Asset.normalized_value),
+                (Observation.object_type == AssetType.IP.value)
+                & (Observation.object_value == Asset.normalized_value),
+            ),
+        )
     )
 
 
@@ -63,7 +87,12 @@ def _ip_read(asset: Asset, detail: IPDetail | None) -> IPInventoryRead:
     )
 
 
-async def list_ip_inventory(session: AsyncSession, project_id: UUID) -> list[IPInventoryRead]:
+async def list_ip_inventory(
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    execution_mode: str = "host",
+) -> list[IPInventoryRead]:
     await get_project_or_404(session, project_id)
     rows = (
         await session.execute(
@@ -73,6 +102,7 @@ async def list_ip_inventory(session: AsyncSession, project_id: UUID) -> list[IPI
                 Asset.project_id == project_id,
                 Asset.asset_type == AssetType.IP,
                 _visible_ip_condition(),
+                _observed_ip_condition(project_id, execution_mode),
             )
             .order_by(Asset.normalized_value)
             .limit(1000)
@@ -82,16 +112,23 @@ async def list_ip_inventory(session: AsyncSession, project_id: UUID) -> list[IPI
 
 
 async def page_ip_inventory(
-    session: AsyncSession, project_id: UUID, *, page: int, page_size: int
+    session: AsyncSession,
+    project_id: UUID,
+    *,
+    page: int,
+    page_size: int,
+    execution_mode: str = "host",
 ) -> IPInventoryPage:
     await get_project_or_404(session, project_id)
     visible_condition = _visible_ip_condition()
+    observed_condition = _observed_ip_condition(project_id, execution_mode)
     total = int(
         await session.scalar(
             select(func.count(Asset.id)).where(
                 Asset.project_id == project_id,
                 Asset.asset_type == AssetType.IP,
                 visible_condition,
+                observed_condition,
             )
         )
         or 0
@@ -102,6 +139,7 @@ async def page_ip_inventory(
                 Asset.project_id == project_id,
                 Asset.asset_type == AssetType.IP,
                 ~visible_condition,
+                observed_condition,
             )
         )
         or 0
@@ -114,6 +152,7 @@ async def page_ip_inventory(
                 Asset.project_id == project_id,
                 Asset.asset_type == AssetType.IP,
                 visible_condition,
+                observed_condition,
             )
             .order_by(Asset.normalized_value)
             .offset((page - 1) * page_size)
@@ -215,6 +254,7 @@ async def list_port_inventory(
     project_id: UUID,
     *,
     scan_run_id: UUID | None = None,
+    execution_mode: str = "host",
 ) -> list[PortInventoryRead]:
     await get_project_or_404(session, project_id)
     statement = (
@@ -223,6 +263,7 @@ async def list_port_inventory(
         .outerjoin(Service, Service.port_id == Port.id)
         .where(Port.project_id == project_id)
         .where(_visible_ip_condition())
+        .where(Port.scan_run_id.in_(_matching_run_ids(project_id, execution_mode)))
         .order_by(Asset.normalized_value, Port.port, Port.protocol)
         .limit(1000)
     )
@@ -267,9 +308,14 @@ async def page_port_inventory(
     page: int,
     page_size: int,
     scan_run_id: UUID | None = None,
+    execution_mode: str = "host",
 ) -> PortInventoryPage:
     await get_project_or_404(session, project_id)
-    conditions = [Port.project_id == project_id, _visible_ip_condition()]
+    conditions = [
+        Port.project_id == project_id,
+        _visible_ip_condition(),
+        Port.scan_run_id.in_(_matching_run_ids(project_id, execution_mode)),
+    ]
     if scan_run_id is not None:
         conditions.append(Port.scan_run_id == scan_run_id)
     total = int(

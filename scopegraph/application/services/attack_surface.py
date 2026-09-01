@@ -3,9 +3,10 @@
 from collections import defaultdict
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -16,10 +17,13 @@ from scopegraph.domain.models import (
     AssetRelation,
     Endpoint,
     Finding,
+    Observation,
     Port,
+    ScanRun,
     Service,
     Technology,
     Website,
+    WebSnapshot,
 )
 from scopegraph.schemas.attack_surface import (
     AttackSurfaceFindingRead,
@@ -113,12 +117,54 @@ def _latest_timestamp(values: list[datetime]) -> datetime:
     return max(values)
 
 
+def _website_read(
+    website: Website,
+    observation: Observation | None,
+    snapshot: WebSnapshot | None,
+    endpoint_count: int,
+) -> AttackSurfaceWebsiteRead:
+    attributes = observation.attributes if observation is not None else {}
+    status_value = attributes.get("status_code")
+    status_code = (
+        status_value
+        if isinstance(status_value, int) and not isinstance(status_value, bool)
+        else None
+    )
+    title_value = attributes.get("title")
+    title = str(title_value)[:1000] if title_value is not None else None
+    final_url = snapshot.final_url if snapshot is not None else website.normalized_url
+    port_value = attributes.get("port")
+    port = port_value if isinstance(port_value, int) and not isinstance(port_value, bool) else None
+    if port is None:
+        parsed = urlsplit(final_url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    last_seen_at = (
+        observation.observed_at
+        if observation is not None
+        else snapshot.observed_at
+        if snapshot is not None
+        else website.last_seen_at
+    )
+    return AttackSurfaceWebsiteRead(
+        id=website.id,
+        url=website.normalized_url,
+        final_url=final_url,
+        title=title,
+        status_code=status_code,
+        port=port,
+        is_alive=status_code is not None and attributes.get("error") is None,
+        endpoint_count=endpoint_count,
+        last_seen_at=last_seen_at,
+    )
+
+
 async def page_attack_surface(
     session: AsyncSession,
     project_id: UUID,
     *,
     page: int,
     page_size: int,
+    execution_mode: str = "host",
 ) -> AttackSurfacePage:
     """Return a bounded attack-surface inventory centered on each domain.
 
@@ -129,6 +175,10 @@ async def page_attack_surface(
     """
 
     await get_project_or_404(session, project_id)
+    matching_runs = select(ScanRun.id).where(
+        ScanRun.project_id == project_id,
+        ScanRun.execution_mode == execution_mode,
+    )
     domains = list(
         (
             await session.scalars(
@@ -136,6 +186,18 @@ async def page_attack_surface(
                 .where(
                     Asset.project_id == project_id,
                     Asset.asset_type == AssetType.DOMAIN,
+                    exists(
+                        select(Observation.id).where(
+                            Observation.project_id == project_id,
+                            Observation.scan_run_id.in_(matching_runs),
+                            or_(
+                                (Observation.subject_type == AssetType.DOMAIN.value)
+                                & (Observation.subject_value == Asset.normalized_value),
+                                (Observation.object_type == AssetType.DOMAIN.value)
+                                & (Observation.object_value == Asset.normalized_value),
+                            ),
+                        )
+                    ),
                 )
                 .order_by(Asset.normalized_value)
             )
@@ -151,34 +213,55 @@ async def page_attack_surface(
         )
 
     domain_by_id = {item.id: item for item in domains}
+    domain_by_value = {item.normalized_value: item for item in domains}
     domain_ids = list(domain_by_id)
-    ip_asset = aliased(Asset)
-    dns_rows = (
+    dns_observations = (
         await session.execute(
-            select(AssetRelation.source_asset_id, ip_asset)
-            .join(ip_asset, ip_asset.id == AssetRelation.target_asset_id)
-            .where(
-                AssetRelation.project_id == project_id,
-                AssetRelation.source_asset_id.in_(domain_ids),
-                AssetRelation.relation_type == RelationType.RESOLVES_TO,
-                ip_asset.asset_type == AssetType.IP,
+            select(Observation.subject_value, Observation.object_value).where(
+                Observation.project_id == project_id,
+                Observation.scan_run_id.in_(matching_runs),
+                Observation.predicate == "RESOLVES_TO",
+                Observation.subject_type == AssetType.DOMAIN.value,
+                Observation.object_type == AssetType.IP.value,
             )
         )
     ).all()
+    ip_values = {value for _, value in dns_observations if value is not None}
+    ip_assets = list(
+        await session.scalars(
+            select(Asset).where(
+                Asset.project_id == project_id,
+                Asset.asset_type == AssetType.IP,
+                Asset.normalized_value.in_(ip_values),
+            )
+        )
+    )
+    ip_by_value = {item.normalized_value: item for item in ip_assets}
     ips_by_domain: dict[UUID, dict[UUID, Asset]] = defaultdict(dict)
     domains_by_ip: dict[UUID, set[UUID]] = defaultdict(set)
     excluded_mappings: set[str] = set()
-    for domain_id, ip in dns_rows:
+    for domain_value, ip_value in dns_observations:
+        domain = domain_by_value.get(domain_value)
+        ip = ip_by_value.get(ip_value or "")
+        if domain is None or ip is None:
+            continue
         if is_environment_mapping_ip(ip.normalized_value):
             excluded_mappings.add(ip.normalized_value)
             continue
-        ips_by_domain[domain_id][ip.id] = ip
-        domains_by_ip[ip.id].add(domain_id)
+        ips_by_domain[domain.id][ip.id] = ip
+        domains_by_ip[ip.id].add(domain.id)
 
     website_rows = list(
         (
             await session.scalars(
-                select(Website).where(Website.project_id == project_id)
+                select(Website).where(
+                    Website.project_id == project_id,
+                    Website.id.in_(
+                        select(WebSnapshot.website_id).where(
+                            WebSnapshot.scan_run_id.in_(matching_runs)
+                        )
+                    ),
+                )
             )
         ).all()
     )
@@ -207,13 +290,46 @@ async def page_attack_surface(
         websites_by_domain[domain_id].append(website)
 
     website_ids = list(domain_by_website)
+    web_observation_by_url: dict[str, Observation] = {}
+    web_snapshot_by_website: dict[UUID, WebSnapshot] = {}
+    if website_ids:
+        website_urls = [
+            website.normalized_url
+            for website in website_rows
+            if website.id in domain_by_website
+        ]
+        for observation in await session.scalars(
+            select(Observation)
+            .where(
+                Observation.project_id == project_id,
+                Observation.scan_run_id.in_(matching_runs),
+                Observation.predicate == "SERVES_WEBSITE",
+                Observation.object_value.in_(website_urls),
+            )
+            .order_by(Observation.observed_at.desc())
+        ):
+            if observation.object_value is not None:
+                web_observation_by_url.setdefault(observation.object_value, observation)
+        for snapshot in await session.scalars(
+            select(WebSnapshot)
+            .where(
+                WebSnapshot.website_id.in_(website_ids),
+                WebSnapshot.scan_run_id.in_(matching_runs),
+            )
+            .order_by(WebSnapshot.observed_at.desc())
+        ):
+            web_snapshot_by_website.setdefault(snapshot.website_id, snapshot)
     endpoint_counts: dict[UUID, int] = {}
     technologies_by_domain: dict[UUID, set[str]] = defaultdict(set)
     if website_ids:
         endpoint_rows = (
             await session.execute(
                 select(Endpoint.website_id, func.count(func.distinct(Endpoint.normalized_url)))
-                .where(Endpoint.project_id == project_id, Endpoint.website_id.in_(website_ids))
+                .where(
+                    Endpoint.project_id == project_id,
+                    Endpoint.website_id.in_(website_ids),
+                    Endpoint.scan_run_id.in_(matching_runs),
+                )
                 .group_by(Endpoint.website_id)
             )
         ).all()
@@ -228,6 +344,7 @@ async def page_attack_surface(
                     select(Technology).where(
                         Technology.project_id == project_id,
                         Technology.website_id.in_(website_ids),
+                        Technology.scan_run_id.in_(matching_runs),
                     )
                 )
             ).all()
@@ -252,6 +369,7 @@ async def page_attack_surface(
                     Port.project_id == project_id,
                     Port.ip_asset_id.in_(visible_ip_ids),
                     Port.state == PortState.OPEN,
+                    Port.scan_run_id.in_(matching_runs),
                 )
             )
         ).all()
@@ -291,9 +409,16 @@ async def page_attack_surface(
             domains_by_finding_asset[website.asset_id].add(domain_id)
 
     findings_by_domain: dict[UUID, dict[UUID, Finding]] = defaultdict(dict)
+    relevant_finding_asset_ids = list(domains_by_finding_asset)
     findings = list(
         (
-            await session.scalars(select(Finding).where(Finding.project_id == project_id))
+            await session.scalars(
+                select(Finding).where(
+                    Finding.project_id == project_id,
+                    Finding.execution_mode == execution_mode,
+                    Finding.asset_id.in_(relevant_finding_asset_ids),
+                )
+            )
         ).all()
     )
     for finding in findings:
@@ -309,19 +434,22 @@ async def page_attack_surface(
         )[:30]
         website_values = sorted(
             websites_by_domain.get(domain_id, []),
-            key=lambda value: (not value.is_alive, value.normalized_url),
+            key=lambda value: (
+                not _website_read(
+                    value,
+                    web_observation_by_url.get(value.normalized_url),
+                    web_snapshot_by_website.get(value.id),
+                    endpoint_counts.get(value.id, 0),
+                ).is_alive,
+                value.normalized_url,
+            ),
         )
         websites = [
-            AttackSurfaceWebsiteRead(
-                id=website.id,
-                url=website.normalized_url,
-                final_url=website.final_url,
-                title=website.title,
-                status_code=website.status_code,
-                port=website.port,
-                is_alive=website.is_alive,
-                endpoint_count=endpoint_counts.get(website.id, 0),
-                last_seen_at=website.last_seen_at,
+            _website_read(
+                website,
+                web_observation_by_url.get(website.normalized_url),
+                web_snapshot_by_website.get(website.id),
+                endpoint_counts.get(website.id, 0),
             )
             for website in website_values[:20]
         ]

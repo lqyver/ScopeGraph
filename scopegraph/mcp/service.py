@@ -150,7 +150,11 @@ class ScopeGraphMcpService:
         elif selected_project is not None:
             recommended_next = {
                 "tool": "scopegraph_all_in_one_snapshot",
-                "arguments": {"project_id": project_id, "limit": 50},
+                "arguments": {
+                    "project_id": project_id,
+                    "execution_mode": "host",
+                    "limit": 50,
+                },
                 "reason": (
                     "Load Scope, assets, websites, network, findings, and scan history in one call."
                 ),
@@ -160,7 +164,11 @@ class ScopeGraphMcpService:
             first_id = first_project.get("id") if isinstance(first_project, dict) else None
             recommended_next = {
                 "tool": "scopegraph_all_in_one_snapshot",
-                "arguments": {"project_id": first_id, "limit": 50},
+                "arguments": {
+                    "project_id": first_id,
+                    "execution_mode": "host",
+                    "limit": 50,
+                },
                 "reason": "Load the selected project's complete bounded intelligence snapshot.",
             }
         else:
@@ -308,11 +316,13 @@ class ScopeGraphMcpService:
         page_size: int = 50,
         asset_type: AssetTypeName | None = None,
         scope_status: ScopeStatusName | None = None,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         project_id = _uuid(project_id, "project_id")
         params: dict[str, Any] = {
             "page": _bounded(page, maximum=10000),
             "page_size": _bounded(page_size, maximum=100),
+            "execution_mode": execution_mode,
         }
         if asset_type is not None:
             params["asset_type"] = asset_type
@@ -323,7 +333,12 @@ class ScopeGraphMcpService:
         )
 
     async def list_websites(
-        self, project_id: str, *, page: int = 1, page_size: int = 50
+        self,
+        project_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         project_id = _uuid(project_id, "project_id")
         return _object_result(
@@ -333,13 +348,25 @@ class ScopeGraphMcpService:
                 params={
                     "page": _bounded(page, maximum=10000),
                     "page_size": _bounded(page_size),
+                    "execution_mode": execution_mode,
                 },
             )
         )
 
-    async def website_detail(self, website_id: str) -> dict[str, Any]:
+    async def website_detail(
+        self,
+        website_id: str,
+        *,
+        execution_mode: ExecutionMode = "host",
+    ) -> dict[str, Any]:
         website_id = _uuid(website_id, "website_id")
-        return _object_result(await self.client.request("GET", f"/api/v1/websites/{website_id}"))
+        return _object_result(
+            await self.client.request(
+                "GET",
+                f"/api/v1/websites/{website_id}",
+                params={"execution_mode": execution_mode},
+            )
+        )
 
     async def network_inventory(
         self,
@@ -347,17 +374,26 @@ class ScopeGraphMcpService:
         *,
         scan_run_id: str | None = None,
         limit: int = 100,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         project_id = _uuid(project_id, "project_id")
         limit = _bounded(limit)
-        params: dict[str, Any] = {"page": 1, "page_size": limit}
+        params: dict[str, Any] = {
+            "page": 1,
+            "page_size": limit,
+            "execution_mode": execution_mode,
+        }
         if scan_run_id is not None:
             params["scan_run_id"] = _uuid(scan_run_id, "scan_run_id")
         ips, ports = await asyncio.gather(
             self.client.request(
                 "GET",
                 f"/api/v1/projects/{project_id}/ips-page",
-                params={"page": 1, "page_size": limit},
+                params={
+                    "page": 1,
+                    "page_size": limit,
+                    "execution_mode": execution_mode,
+                },
             ),
             self.client.request("GET", f"/api/v1/projects/{project_id}/ports-page", params=params),
         )
@@ -372,7 +408,13 @@ class ScopeGraphMcpService:
             "truncated": ip_total > limit or port_total > limit,
         }
 
-    async def attack_surface_overview(self, project_id: str, *, limit: int = 50) -> dict[str, Any]:
+    async def attack_surface_overview(
+        self,
+        project_id: str,
+        *,
+        limit: int = 50,
+        execution_mode: ExecutionMode = "host",
+    ) -> dict[str, Any]:
         """Get the highest-priority domain-centric evidence in one bounded response."""
 
         project_id = _uuid(project_id, "project_id")
@@ -381,7 +423,11 @@ class ScopeGraphMcpService:
             await self.client.request(
                 "GET",
                 f"/api/v1/projects/{project_id}/attack-surface",
-                params={"page": 1, "page_size": limit},
+                params={
+                    "page": 1,
+                    "page_size": limit,
+                    "execution_mode": execution_mode,
+                },
             )
         )
         items = result.get("items", [])
@@ -395,7 +441,11 @@ class ScopeGraphMcpService:
         }
 
     async def all_in_one_snapshot(
-        self, project_id: str, *, limit: int = 50
+        self,
+        project_id: str,
+        *,
+        limit: int = 50,
+        execution_mode: ExecutionMode = "host",
     ) -> dict[str, Any]:
         """Return the complete bounded project intelligence view in one MCP roundtrip."""
 
@@ -403,12 +453,27 @@ class ScopeGraphMcpService:
         limit = _bounded(limit)
         overview, assets, websites, network, attack_surface, findings, scans = await asyncio.gather(
             self.project_overview(project_id),
-            self.list_assets(project_id, page=1, page_size=limit),
-            self.list_websites(project_id, page=1, page_size=limit),
-            self.network_inventory(project_id, limit=limit),
-            self.attack_surface_overview(project_id, limit=limit),
-            self.list_findings(project_id, limit=limit),
-            self.list_scan_runs(project_id, page=1, page_size=min(limit, 20)),
+            self.list_assets(
+                project_id, page=1, page_size=limit, execution_mode=execution_mode
+            ),
+            self.list_websites(
+                project_id, page=1, page_size=limit, execution_mode=execution_mode
+            ),
+            self.network_inventory(
+                project_id, limit=limit, execution_mode=execution_mode
+            ),
+            self.attack_surface_overview(
+                project_id, limit=limit, execution_mode=execution_mode
+            ),
+            self.list_findings(
+                project_id, limit=limit, execution_mode=execution_mode
+            ),
+            self.list_scan_runs(
+                project_id,
+                page=1,
+                page_size=min(limit, 20),
+                execution_mode=execution_mode,
+            ),
         )
         scan_rows = scans.get("items", []) if isinstance(scans, dict) else []
         latest_run = scan_rows[0] if isinstance(scan_rows, list) and scan_rows else None
@@ -438,6 +503,8 @@ class ScopeGraphMcpService:
                 "scan_runs": int(scans.get("total", len(scan_rows))),
             },
             "bounded_limit": limit,
+            "execution_mode": execution_mode,
+            "evidence_class": "real" if execution_mode == "host" else "fixture",
             "interpretation": {
                 "open_ports_are_findings_not_tested_port_count": True,
                 "automated_security_hits_are_unverified": True,
@@ -445,20 +512,45 @@ class ScopeGraphMcpService:
             },
         }
 
-    async def list_findings(self, project_id: str, *, limit: int = 100) -> dict[str, Any]:
+    async def list_findings(
+        self,
+        project_id: str,
+        *,
+        limit: int = 100,
+        execution_mode: ExecutionMode = "host",
+    ) -> dict[str, Any]:
         project_id = _uuid(project_id, "project_id")
         limit = _bounded(limit)
-        rows = await self.client.request("GET", f"/api/v1/projects/{project_id}/findings")
-        findings = rows if isinstance(rows, list) else []
+        page = _object_result(
+            await self.client.request(
+                "GET",
+                f"/api/v1/projects/{project_id}/findings-page",
+                params={
+                    "page": 1,
+                    "page_size": limit,
+                    "execution_mode": execution_mode,
+                },
+            )
+        )
+        findings = page.get("items", [])
+        if not isinstance(findings, list):
+            findings = []
+        total = int(page.get("total", len(findings)))
         return {
-            "items": findings[:limit],
-            "total": len(findings),
-            "truncated": len(findings) > limit,
+            "items": findings,
+            "total": total,
+            "truncated": total > limit,
+            "execution_mode": execution_mode,
             "claim_boundary": "All automated findings remain unverified until human review.",
         }
 
     async def list_scan_runs(
-        self, project_id: str, *, page: int = 1, page_size: int = 20
+        self,
+        project_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        execution_mode: ExecutionMode | None = None,
     ) -> dict[str, Any]:
         project_id = _uuid(project_id, "project_id")
         return _object_result(
@@ -468,6 +560,11 @@ class ScopeGraphMcpService:
                 params={
                     "page": _bounded(page, maximum=10000),
                     "page_size": _bounded(page_size, maximum=100),
+                    **(
+                        {"execution_mode": execution_mode}
+                        if execution_mode is not None
+                        else {}
+                    ),
                 },
             )
         )

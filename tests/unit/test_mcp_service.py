@@ -67,7 +67,11 @@ async def test_get_started_is_live_and_self_contained() -> None:
     assert result["scan_control"]["enabled"] is False
     assert result["recommended_next"] == {
         "tool": "scopegraph_all_in_one_snapshot",
-        "arguments": {"project_id": PROJECT_ID, "limit": 50},
+        "arguments": {
+            "project_id": PROJECT_ID,
+            "execution_mode": "host",
+            "limit": 50,
+        },
         "reason": "Load the selected project's complete bounded intelligence snapshot.",
     }
     assert len(result["recommended_workflow"]) == 6
@@ -96,8 +100,8 @@ async def test_all_in_one_snapshot_collects_bounded_views_concurrently() -> None
                 return {"items": [{"ip": "93.184.216.34"}], "total": 2}
             if path.endswith("/ports-page"):
                 return {"items": [{"port": 443}], "total": 1}
-            if path.endswith("/findings"):
-                return [{"template_id": "tls-version"}]
+            if path.endswith("/findings-page"):
+                return {"items": [{"template_id": "tls-version"}], "total": 1}
             if path.endswith("/scan-runs"):
                 return {
                     "items": [{"summary": {"funnel": {"websites_alive": 3}}}],
@@ -118,6 +122,8 @@ async def test_all_in_one_snapshot_collects_bounded_views_concurrently() -> None
         "scan_runs": 2,
     }
     assert result["latest_asset_funnel"] == {"websites_alive": 3}
+    assert result["execution_mode"] == "host"
+    assert result["evidence_class"] == "real"
     assert result["interpretation"]["open_ports_are_findings_not_tested_port_count"] is True
 
 

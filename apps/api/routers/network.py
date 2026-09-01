@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -25,8 +25,12 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 @router.get("/projects/{project_id}/ips", response_model=list[IPInventoryRead])
-async def project_ips(project_id: UUID, session: Session) -> list[IPInventoryRead]:
-    return await list_ip_inventory(session, project_id)
+async def project_ips(
+    project_id: UUID,
+    session: Session,
+    execution_mode: Literal["host", "fixture"] = "host",
+) -> list[IPInventoryRead]:
+    return await list_ip_inventory(session, project_id, execution_mode=execution_mode)
 
 
 @router.get("/projects/{project_id}/ips-page", response_model=IPInventoryPage)
@@ -35,8 +39,15 @@ async def project_ips_page(
     session: Session,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=200),
+    execution_mode: Literal["host", "fixture"] = "host",
 ) -> IPInventoryPage:
-    return await page_ip_inventory(session, project_id, page=page, page_size=page_size)
+    return await page_ip_inventory(
+        session,
+        project_id,
+        page=page,
+        page_size=page_size,
+        execution_mode=execution_mode,
+    )
 
 
 @router.patch("/projects/{project_id}/ips/{asset_id}", response_model=IPInventoryRead)
@@ -54,8 +65,14 @@ async def project_ports(
     project_id: UUID,
     session: Session,
     scan_run_id: UUID | None = None,
+    execution_mode: Literal["host", "fixture"] = "host",
 ) -> list[PortInventoryRead]:
-    return await list_port_inventory(session, project_id, scan_run_id=scan_run_id)
+    return await list_port_inventory(
+        session,
+        project_id,
+        scan_run_id=scan_run_id,
+        execution_mode=execution_mode,
+    )
 
 
 @router.get("/projects/{project_id}/ports-page", response_model=PortInventoryPage)
@@ -65,6 +82,7 @@ async def project_ports_page(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=100, ge=1, le=200),
     scan_run_id: UUID | None = None,
+    execution_mode: Literal["host", "fixture"] = "host",
 ) -> PortInventoryPage:
     return await page_port_inventory(
         session,
@@ -72,4 +90,5 @@ async def project_ports_page(
         page=page,
         page_size=page_size,
         scan_run_id=scan_run_id,
+        execution_mode=execution_mode,
     )

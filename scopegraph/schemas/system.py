@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scopegraph.security import normalize_proxy_url
@@ -27,6 +29,7 @@ class ToolUpdateRead(BaseModel):
 
 
 class SystemSettingsRead(BaseModel):
+    edition: Literal["internal", "community"]
     proxy_url: str | None = None
     proxy_credentials_supported: bool = False
     public_bind: bool

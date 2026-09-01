@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { AttackSurfaceItem, AttackSurfacePage } from "./api";
+import { evidenceModeQuery, type EvidenceMode } from "./evidence-mode";
 
 interface AttackSurfaceOverviewProps {
   projectId: string;
   data: AttackSurfacePage;
   compact?: boolean;
+  mode?: EvidenceMode;
 }
 
 const priorityLabels = {
@@ -26,6 +28,7 @@ export function AttackSurfaceOverview({
   projectId,
   data,
   compact = false,
+  mode = "host",
 }: AttackSurfaceOverviewProps) {
   const visibleItems = compact ? data.items.slice(0, 5) : data.items;
   const title = compact ? "优先复核目标" : "按域名聚合的攻击面";
@@ -41,7 +44,7 @@ export function AttackSurfaceOverview({
             不代表已确认漏洞或资产归属。
           </p>
         </div>
-        <Link className="button-secondary" href={`/projects/${projectId}/scope`}>
+        <Link className="button-secondary" href={`/projects/${projectId}/scope${evidenceModeQuery(mode)}`}>
           审核 Scope 与归属
         </Link>
       </header>
@@ -74,7 +77,7 @@ export function AttackSurfaceOverview({
               <header className="surface-item-heading">
                 <div>
                   <div className="surface-title-row">
-                    <Link href={`/projects/${projectId}/scope`} className="surface-domain">
+                    <Link href={`/projects/${projectId}/scope${evidenceModeQuery(mode)}`} className="surface-domain">
                       {item.domain}
                     </Link>
                     <span className={`priority-badge priority-${item.priority_tier}`}>
@@ -128,7 +131,7 @@ export function AttackSurfaceOverview({
                   <div className="surface-website-list">
                     {item.websites.length
                       ? item.websites.map((website) => (
-                        <Link href={`/websites/${website.id}`} key={website.id}>
+                        <Link href={`/websites/${website.id}${evidenceModeQuery(mode)}`} key={website.id}>
                           <strong>{website.status_code ?? "ERR"}</strong>
                           <span>{website.title ?? website.url}</span>
                           <small>{website.endpoint_count} 端点</small>

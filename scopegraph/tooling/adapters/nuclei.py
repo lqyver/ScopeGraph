@@ -178,6 +178,7 @@ class NucleiAdapter(ToolAdapter):
             "-probe-concurrency",
             str(min(100, data.concurrency * 2)),
             "-no-interactsh",
+            "-restrict-local-network-access",
         ]
         if data.strategy == "automatic":
             # Nuclei first fingerprints each host and then loads only templates

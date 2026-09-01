@@ -270,6 +270,7 @@ async def benchmark() -> None:
                     id=run_id,
                     project_id=project_id,
                     profile=ScanProfile.STANDARD,
+                    execution_mode="fixture",
                     config_snapshot={"execution_mode": "fixture"},
                     status=ScanStatus.SUCCESS,
                     progress=100,

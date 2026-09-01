@@ -17,10 +17,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -e ".[dev]"
-      - run: python -m ruff check apps scopegraph tests
+          cache-dependency-path: |
+            pyproject.toml
+            constraints/python312.txt
+      - run: python scripts/validate_public_release.py --json
+      - run: python -m pip install --constraint constraints/python312.txt -e ".[dev]"
+      - run: python -m pip check
+      - run: python -m ruff check apps scopegraph tests scripts
       - run: python -m mypy apps scopegraph
-      - run: python -m pytest --cov=apps --cov=scopegraph --cov-report=term-missing
+      - run: python -m pytest -W error --cov=apps --cov=scopegraph --cov-report=term-missing --cov-fail-under=60
 
   web:
     runs-on: ubuntu-latest
@@ -42,11 +47,32 @@ jobs:
 
   compose:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config --quiet
-      - run: docker compose up -d --build
-      - run: python tests/integration/phase2_smoke.py
+      - run: docker compose up -d --build --wait --wait-timeout 240
+      - name: Fixture workflow E2E
+        run: |
+          python tests/integration/phase2_smoke.py
+          python tests/integration/phase3_smoke.py
+          python tests/integration/phase4_smoke.py
+          python tests/integration/phase5_smoke.py
+          python tests/integration/phase5_async_smoke.py
+          python tests/integration/phase6_smoke.py
+          python tests/integration/phase7_smoke.py
+      - name: MCP default-safety smoke
+        run: docker compose exec -T mcp python -m apps.mcp_server.smoke
+      - name: Worker restart recovery
+        shell: bash
+        run: |
+          docker compose stop worker
+          run_id="$(python tests/integration/restart_recovery.py queue)"
+          # `start` can reuse an old exited migrate container without the
+          # current source tree. `up` reconciles the image and reruns the
+          # additive migration before bringing the worker back.
+          docker compose up -d worker
+          python tests/integration/restart_recovery.py wait "$run_id"
       - if: failure()
         run: docker compose logs --no-color
       - if: always()

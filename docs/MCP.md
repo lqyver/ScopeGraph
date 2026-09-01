@@ -18,7 +18,7 @@ ScopeGraph 内置官方 Python SDK 实现的 Model Context Protocol Server。外
 - 开启 Agent 启动后仍只接受精确匹配的已确认根域；
 - 不开放 Deep、Custom、全端口或 Nuclei；端口扫描默认关闭；
 - Agent 收集默认不截图，避免大批站点拖慢主链；需要截图时显式传入 `include_screenshots=true`；
-- Docker HTTP 端点只发布到 `127.0.0.1:8001`；
+- Community Edition 的 Docker HTTP 端点只发布到 `127.0.0.1:18001`；
 - 扫描完成度不代表攻击面覆盖率，自动发现项不代表已确认漏洞；
 - `fixture` 结果会明确返回 `evidence_class=fixture`，不能当作真实证据。
 
@@ -31,7 +31,7 @@ docker compose up -d --build
 docker compose ps
 ```
 
-本机 MCP 地址：`http://127.0.0.1:8001/mcp`。
+本机 MCP 地址：`http://127.0.0.1:18001/mcp`。
 
 只有在本地管理员希望 Agent 能启动扫描时，才在 `.env` 中加入：
 
@@ -49,11 +49,11 @@ stdio 不开放监听端口，适合由 Agent 客户端直接启动。确保 API
 ```json
 {
   "mcpServers": {
-    "scopegraph": {
+    "scopegraph-community": {
       "command": "scopegraph-mcp",
       "args": ["--transport", "stdio"],
       "env": {
-        "SCOPEGRAPH_API_URL": "http://127.0.0.1:8000",
+        "SCOPEGRAPH_API_URL": "http://127.0.0.1:18000",
         "SCOPEGRAPH_MCP_ALLOW_SCAN_START": "false"
       }
     }
@@ -70,9 +70,9 @@ stdio 不开放监听端口，适合由 Agent 客户端直接启动。确保 API
 ```json
 {
   "mcpServers": {
-    "scopegraph": {
+    "scopegraph-community": {
       "type": "http",
-      "url": "http://127.0.0.1:8001/mcp"
+      "url": "http://127.0.0.1:18001/mcp"
     }
   }
 }
@@ -127,4 +127,4 @@ docker compose exec -T mcp python -m apps.mcp_server.collection_smoke `
 docker compose exec -T mcp python -m apps.mcp_server.poll_smoke --run-id <SCAN_RUN_ID>
 ```
 
-也可使用 MCP Inspector 连接 `http://127.0.0.1:8001/mcp`。
+也可使用 MCP Inspector 连接 `http://127.0.0.1:18001/mcp`。

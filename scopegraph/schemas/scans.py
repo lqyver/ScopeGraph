@@ -76,6 +76,7 @@ class ScanRunRead(BaseModel):
     id: UUID
     project_id: UUID
     profile: ScanProfile
+    execution_mode: str
     config_snapshot: dict[str, Any]
     status: ScanStatus
     progress: float
